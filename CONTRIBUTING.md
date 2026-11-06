@@ -81,6 +81,10 @@ user-visible changes.
 4. Open a pull request and fill in the template: what changed, why, and how you verified it.
 5. A maintainer reviews it. Please respond to feedback by pushing new commits; the branch is squash-merged.
 
+`main` is protected. A pull request can merge only when the CI and CodeQL checks pass, the branch is up to date
+with `main`, and all review conversations are resolved. If you are an outside contributor, a maintainer approves
+your first workflow runs before they start.
+
 ## Releases
 
 Maintainers cut releases by tagging `vX.Y.Z`; see [docs/releasing.md](docs/releasing.md).

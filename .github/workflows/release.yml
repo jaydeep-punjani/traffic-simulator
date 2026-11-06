@@ -19,7 +19,7 @@ env:
 
 jobs:
   dist:
-    name: Build and attest wheel and sdist
+    name: Build and Attest Wheel and Sdist
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -58,9 +58,12 @@ jobs:
           if-no-files-found: error
 
   image:
-    name: Publish container image to GHCR
+    name: Publish Container Image to GHCR
     needs: dist
     runs-on: ubuntu-latest
+    environment:
+      name: release
+      url: https://github.com/${{ github.repository }}/pkgs/container/traffic-simulator
     timeout-minutes: 45
     permissions:
       contents: read
@@ -111,9 +114,12 @@ jobs:
           DIGEST: ${{ steps.push.outputs.digest }}
 
   github-release:
-    name: Create GitHub release
+    name: Create GitHub Release
     needs: [dist, image]
     runs-on: ubuntu-latest
+    environment:
+      name: release
+      url: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
     timeout-minutes: 10
     permissions:
       contents: write

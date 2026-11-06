@@ -29,7 +29,7 @@ Start with the [README](../README.md) for a five-minute tour. Then pick by what 
 | [docker.md](docker.md) | Image, compose stack, real collectors, exports, sizing, hardening |
 | [operations.md](operations.md) | Commands, environment, destinations, exports, timestamps, tuning, security, troubleshooting |
 | [scenario-reference.md](scenario-reference.md) | Every scenario field, pattern, event preset and catalog option, with defaults and limits |
-| [releasing.md](releasing.md) | Release process and verifying artefacts |
+| [releasing.md](releasing.md) | Release process, verifying artefacts, repository settings and rulesets |
 | [audit-2026-11.md](audit-2026-11.md) | November 2026 audit: findings, fixes and verification |
 
 ## External references

@@ -171,3 +171,7 @@ validated by the test suite.
 - Small, focused commits with imperative subjects ("Add tournament overlay preset").
 - Fill in the pull request template; link the issue; list the verification commands you ran and their results.
 - Do not bump the version or tag releases; maintainers do that (see [docs/releasing.md](docs/releasing.md)).
+- `main` is protected by a ruleset: work on a branch and open a pull request. Required checks are named after the CI and
+  CodeQL jobs, so renaming a job also means updating the ruleset
+  ([docs/releasing.md#repository-settings](docs/releasing.md#repository-settings)).
+- New actions must come from GitHub or a verified creator and be pinned to a full commit SHA.

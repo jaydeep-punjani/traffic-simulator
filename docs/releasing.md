@@ -28,10 +28,13 @@ There is no PyPI package.
    ```
 
 6. Watch the **Release** workflow. It builds and smoke-tests the wheel, pushes and smoke-tests the image, then creates the
-   GitHub Release with the changelog section as notes.
+   GitHub Release with the changelog section as notes. The image and release jobs run in the `release` environment,
+   which only accepts `v*` tags.
 
-If a release fails after the image was pushed, fix the problem, delete the GitHub Release and tag if they exist
-(`gh release delete vX.Y.Z --cleanup-tag`), and release the next patch version. Do not move a published tag.
+Releases are immutable: once published, their assets and tag cannot be changed, and the version cannot be reused.
+Publish a new patch version to fix a bad release. If the workflow fails before the GitHub Release is created, fix the
+problem on `main`, delete the tag (`git push --delete origin vX.Y.Z`, which needs a repository admin because of the tag
+ruleset) and release the next patch version. Never move a published tag.
 
 ## Verifying a release
 
@@ -59,3 +62,34 @@ docker run --rm -p 127.0.0.1:8000:8000 ghcr.io/jaydeep-punjani/traffic-simulator
 # Wheel
 pip install https://github.com/jaydeep-punjani/traffic-simulator/releases/download/vX.Y.Z/trafficsim-X.Y.Z-py3-none-any.whl
 ```
+
+## Repository settings
+
+The repository enforces the following settings. Keep them in place when changing workflows or job names.
+
+**`main` branch ruleset**
+
+- Changes land through pull requests, which are squash-merged. Review threads must be resolved, and new pushes dismiss
+  earlier approvals.
+- Required status checks must pass on a branch that is up to date with `main`: every job in the **CI** workflow
+  (lint, the test matrix, package, Docker) and every **CodeQL** analysis. Renaming a job renames its check, so update
+  the ruleset in the same pull request.
+- CodeQL must not report new errors or high-severity security alerts.
+- Linear history and signed commits are required; force pushes and deletion are blocked.
+- Repository admins can bypass the ruleset.
+
+**`v*` tag ruleset**: tags cannot be updated, force-pushed or deleted, except by repository admins.
+
+**Actions**
+
+- Workflows get a read-only `GITHUB_TOKEN` by default and cannot approve pull requests.
+- Only GitHub-owned and verified-creator actions may run, and every action must be pinned to a full commit SHA.
+- Workflows from outside contributors' pull requests need a maintainer's approval before they run.
+
+**Security**
+
+- Dependabot alerts, Dependabot security updates, secret scanning with push protection, and private vulnerability
+  reporting are enabled.
+- The **Dependency Review** workflow blocks pull requests that add dependencies with known vulnerabilities.
+
+**Releases**: releases are immutable, and publishing runs in the `release` environment, which only `v*` tags can use.
