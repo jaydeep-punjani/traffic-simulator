@@ -3,126 +3,257 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Simulate app traffic and send Segment events for streaming, e-commerce and gaming apps.">
   <title>trafficsim</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230b6e69'/%3E%3Cpath d='M6 22l6-7 5 4 9-11' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/static/styles.css">
   <script src="/static/vendor/chart.umd.js"></script>
 </head>
 <body>
-<header class="bar">
-  <h1>trafficsim</h1>
-  <span id="dest" class="muted"></span>
-  <span class="spacer"></span>
-  <span id="conn" class="conn" data-state="down">disconnected</span>
+<a class="skip" href="#main">Skip to results</a>
+
+<header class="topbar">
+  <div class="brand">
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7"/><path d="M6 22l6-7 5 4 9-11"/></svg>
+    <span>trafficsim</span>
+  </div>
+  <p class="dest" id="dest"></p>
+  <p id="conn" class="conn" data-state="down" role="status"><span class="dot" aria-hidden="true"></span><span id="conn-text">Connecting…</span></p>
 </header>
 
-<main class="layout">
-  <aside class="panel" aria-label="Run setup and controls">
-    <section>
-      <h2>Scenario</h2>
-      <label for="scenario">Scenario file</label>
-      <select id="scenario"></select>
-      <p id="scenario-desc" class="muted small"></p>
+<div class="layout">
+  <aside class="setup" aria-labelledby="setup-title">
+    <form id="setup" novalidate>
+      <h1 id="setup-title">Set up a run</h1>
+      <p id="busy-note" class="note" hidden>A run is in progress. Stop it to start another.</p>
 
-      <div class="grid2">
-        <div><label for="p-concurrency">Base concurrency</label><input id="p-concurrency" type="number" min="0" step="100"></div>
-        <div><label for="p-speed">Speed (x)</label><input id="p-speed" type="number" min="0.1" step="1"></div>
-        <div><label for="p-duration">Duration</label><input id="p-duration" type="text" placeholder="e.g. 2h"></div>
-        <div><label for="p-start">Start at</label><input id="p-start" type="text" placeholder="now, -24h, ISO"></div>
-        <div><label for="p-seed">Seed</label><input id="p-seed" type="number"></div>
-        <div><label for="p-workers">Workers</label><input id="p-workers" type="number" min="1" placeholder="auto"></div>
-        <div><label for="p-cap">Events/s cap</label><input id="p-cap" type="number" min="1" placeholder="off"></div>
-        <div><label for="p-sample">Sample payloads</label><input id="p-sample" type="number" min="0" max="1" step="0.001" placeholder="0"></div>
-      </div>
+      <fieldset id="setup-fields">
+        <div class="field">
+          <label for="scenario">Scenario</label>
+          <select id="scenario"></select>
+          <p id="scenario-desc" class="hint"></p>
+          <ul id="scenario-tags" class="tags" aria-label="Apps in this scenario"></ul>
+        </div>
 
-      <fieldset id="mix">
-        <legend>Platform mix</legend>
-        <div id="mix-rows"></div>
+        <div class="field">
+          <label for="p-concurrency">Simultaneous users</label>
+          <input id="p-concurrency" type="number" min="0" step="100" inputmode="numeric" aria-describedby="concurrency-hint">
+          <p id="concurrency-hint" class="hint">How many people use the apps at the same time on a normal day. Daily patterns and events push traffic above and below this.</p>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="speed-choice">Speed</label>
+            <select id="speed-choice">
+              <option value="1">Real time</option>
+              <option value="10">10× faster</option>
+              <option value="30">30× faster</option>
+              <option value="60">60× faster</option>
+              <option value="240">240× faster</option>
+              <option value="custom">Custom…</option>
+            </select>
+            <input id="p-speed" class="custom" type="number" min="0.1" max="10000" step="1" aria-label="Custom speed multiplier" placeholder="e.g. 120" hidden>
+          </div>
+          <div class="field">
+            <label for="duration-choice">Simulated length</label>
+            <select id="duration-choice">
+              <option value="1h">1 hour</option>
+              <option value="2h">2 hours</option>
+              <option value="6h">6 hours</option>
+              <option value="12h">12 hours</option>
+              <option value="24h">24 hours</option>
+              <option value="7d">7 days</option>
+              <option value="0">Until I stop it</option>
+              <option value="custom">Custom…</option>
+            </select>
+            <input id="p-duration" class="custom" type="text" aria-label="Custom simulated length" placeholder="e.g. 90m, 2h, 3d" hidden>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="start-choice">Event timestamps start</label>
+          <select id="start-choice">
+            <option value="now">Now</option>
+            <option value="-1h">1 hour ago</option>
+            <option value="-24h">24 hours ago</option>
+            <option value="-4d">4 days ago</option>
+            <option value="-7d">7 days ago</option>
+            <option value="custom">Custom…</option>
+          </select>
+          <input id="p-start" class="custom" type="text" aria-label="Custom start time" placeholder="-48h or 2026-11-01T00:00:00Z" hidden>
+        </div>
+
+        <fieldset class="mix">
+          <legend>Platform split</legend>
+          <p class="hint">Share of each app's users on each platform.</p>
+          <div id="mix-rows"></div>
+        </fieldset>
+
+        <details class="advanced">
+          <summary>Advanced options</summary>
+          <div class="field-row">
+            <div class="field">
+              <label for="p-seed">Random seed</label>
+              <input id="p-seed" type="number" aria-describedby="seed-hint">
+            </div>
+            <div class="field">
+              <label for="p-workers">Worker processes</label>
+              <input id="p-workers" type="number" min="1" max="256" placeholder="Automatic">
+            </div>
+          </div>
+          <p id="seed-hint" class="hint">The same seed gives the same users and journeys every time.</p>
+          <div class="field-row">
+            <div class="field">
+              <label for="p-cap">Max events per second</label>
+              <input id="p-cap" type="number" min="1" placeholder="No limit">
+            </div>
+            <div class="field">
+              <label for="p-sample">Save sample payloads (%)</label>
+              <input id="p-sample" type="number" min="0" max="100" step="0.1" placeholder="0">
+            </div>
+          </div>
+          <details class="yaml">
+            <summary>Edit scenario YAML</summary>
+            <textarea id="yaml" spellcheck="false" rows="16" aria-label="Scenario YAML"></textarea>
+            <p class="hint">Once you edit the YAML, it is used as written and the fields above are ignored. <button type="button" id="yaml-reset" class="link">Discard YAML edits</button></p>
+          </details>
+        </details>
       </fieldset>
 
-      <details>
-        <summary>Edit full scenario YAML</summary>
-        <textarea id="yaml" spellcheck="false" rows="16" aria-label="Scenario YAML"></textarea>
-        <p class="muted small">If you edit the YAML, it is sent as-is; the fields above are applied on top.</p>
-      </details>
+      <div class="preview" id="preview" aria-live="polite"></div>
 
-      <label class="check"><input id="dry" type="checkbox"> Dry run (simulate only, send nothing)</label>
-      <div class="row">
-        <button id="start" class="primary">Start run</button>
-        <button id="validate">Validate</button>
-      </div>
-      <p id="msg" class="small" role="status"></p>
-    </section>
+      <label class="toggle">
+        <input id="dry" type="checkbox">
+        <span><strong>Practice run</strong><br><span class="hint">Simulate everything but don't send events.</span></span>
+      </label>
 
-    <section>
-      <h2>Live controls</h2>
-      <div class="row">
-        <button id="pause" disabled>Pause</button>
-        <button id="stop" disabled>Stop</button>
+      <div class="actions">
+        <button id="start" type="button" class="primary">Start run</button>
+        <button id="validate" type="button" class="secondary">Check settings</button>
       </div>
-      <label for="live-speed">Change speed</label>
-      <div class="row">
-        <input id="live-speed" type="number" min="0.1" step="1" placeholder="60">
-        <button id="apply-speed" disabled>Apply</button>
-      </div>
-      <label for="ev-type">Trigger event now</label>
-      <div class="row">
-        <select id="ev-type"></select>
-        <input id="ev-mag" type="number" step="0.1" min="0.1" placeholder="magnitude" aria-label="Magnitude">
-      </div>
-      <div class="row">
-        <input id="ev-hold" type="text" placeholder="hold, e.g. 30m" aria-label="Hold duration">
-        <button id="trigger" disabled>Trigger</button>
-      </div>
-    </section>
-
-    <section>
-      <h2>Exports</h2>
-      <div class="row">
-        <a id="dl-summary" class="btn disabled" aria-disabled="true">summary.json</a>
-        <a id="dl-csv" class="btn disabled" aria-disabled="true">timeseries.csv</a>
-      </div>
-      <p class="muted small">Sampled payloads (if enabled) are written to <code>runs/&lt;run&gt;/payloads-w*.jsonl</code>.</p>
-      <ul id="past-runs" class="runs small"></ul>
-    </section>
+      <p id="msg" class="msg" role="status" aria-live="polite"></p>
+    </form>
   </aside>
 
-  <section class="content">
-    <div id="empty" class="empty">
-      <p><strong>No run yet.</strong> Pick a scenario on the left, adjust parameters, and press <em>Start run</em>.
-        Start the bundled collector first with <code>trafficsim mock-collector</code> if you have no endpoint.</p>
-    </div>
+  <main id="main" class="content" tabindex="-1">
+    <section id="empty" class="empty" aria-labelledby="empty-title">
+      <h2 id="empty-title">No run yet</h2>
+      <ol class="steps">
+        <li><strong>Pick a scenario.</strong> Each one describes a kind of day: normal traffic, a flash sale, a game launch.</li>
+        <li><strong>Adjust users, speed and length</strong>, or keep the defaults.</li>
+        <li><strong>Start the run.</strong> Live charts appear here. You can pause, change speed or add a traffic spike while it runs.</li>
+      </ol>
+      <p class="hint">No collector to send to? Tick <em>Practice run</em>, or start the bundled one with <code>trafficsim mock-collector</code>.</p>
+    </section>
 
-    <div id="live" hidden>
-      <div class="headline">
-        <div class="lead">
-          <span class="label">Active sessions / target</span>
-          <span class="big"><span id="h-active">0</span><span class="muted"> / <span id="h-target">0</span></span></span>
-          <span class="muted small" id="h-run"></span>
+    <section id="live" aria-labelledby="r-name" hidden>
+      <div class="runbar">
+        <div class="run-head">
+          <h2 id="r-name"></h2>
+          <span id="r-state" class="badge"></span>
+          <span id="r-meta" class="hint"></span>
         </div>
-        <dl class="facts">
-          <div><dt>Sim clock</dt><dd id="h-clock">-</dd></div>
-          <div><dt>Speed</dt><dd id="h-speed">-</dd></div>
-          <div><dt>Events/s</dt><dd id="h-eps">0</dd></div>
-          <div><dt>SDK sent/s</dt><dd id="h-sent">0</dd></div>
-          <div><dt>Queued</dt><dd id="h-queue">0</dd></div>
-          <div><dt>Failed / dropped</dt><dd id="h-fail">0 / 0</dd></div>
-          <div><dt>Sim lag</dt><dd id="h-lag">0s</dd></div>
-          <div><dt>Total events</dt><dd id="h-total">0</dd></div>
-        </dl>
+        <div class="progress" id="progress-wrap">
+          <div class="track" role="progressbar" aria-labelledby="r-progress-text" aria-valuemin="0" aria-valuemax="100" id="r-progressbar"><span id="r-progress" class="fill"></span></div>
+          <span id="r-progress-text" class="hint"></span>
+        </div>
+        <div class="controls" id="controls">
+          <button id="pause" type="button" class="secondary">Pause</button>
+          <button id="stop" type="button" class="secondary danger">Stop</button>
+          <label class="inline" for="live-speed">Speed
+            <select id="live-speed">
+              <option value="1">1×</option><option value="10">10×</option><option value="30">30×</option>
+              <option value="60">60×</option><option value="120">120×</option><option value="240">240×</option><option value="600">600×</option>
+            </select>
+          </label>
+          <button id="open-event" type="button" class="secondary" aria-expanded="false" aria-controls="event-panel">Add traffic event</button>
+          <span class="spacer"></span>
+          <a id="dl-summary" class="btn link" download>Summary (JSON)</a>
+          <a id="dl-csv" class="btn link" download>Time series (CSV)</a>
+        </div>
+        <form id="event-panel" class="event-panel" hidden>
+          <div class="field">
+            <label for="ev-type">Event</label>
+            <select id="ev-type"></select>
+            <p id="ev-desc" class="hint"></p>
+          </div>
+          <div class="field">
+            <label for="ev-mag">Size</label>
+            <select id="ev-mag"></select>
+          </div>
+          <div class="field">
+            <label for="ev-hold">Lasts</label>
+            <select id="ev-hold"></select>
+          </div>
+          <div class="field end">
+            <button id="trigger" type="submit" class="primary">Start event</button>
+          </div>
+        </form>
+        <p id="live-msg" class="msg" role="status" aria-live="polite"></p>
       </div>
-      <p id="warn" class="warn" hidden></p>
-      <p id="overlays" class="small"></p>
+
+      <p id="health" class="health" data-level="ok" role="status"></p>
+      <ul id="notices" class="notices"></ul>
+
+      <div class="kpis">
+        <article class="kpi">
+          <h3>Active users</h3>
+          <p class="value"><span id="k-active">0</span></p>
+          <p class="sub" id="k-active-sub"></p>
+        </article>
+        <article class="kpi">
+          <h3>Events per second</h3>
+          <p class="value" id="k-eps">0</p>
+          <p class="sub" id="k-eps-sub"></p>
+        </article>
+        <article class="kpi">
+          <h3>Events delivered</h3>
+          <p class="value" id="k-sent">0</p>
+          <p class="sub" id="k-sent-sub"></p>
+        </article>
+        <article class="kpi">
+          <h3>Simulated time</h3>
+          <p class="value clock" id="k-clock">–</p>
+          <p class="sub" id="k-clock-sub"></p>
+        </article>
+      </div>
+
+      <ul id="overlays" class="chips" aria-label="Traffic events in progress"></ul>
 
       <div class="charts">
-        <figure class="wide"><figcaption>Are we holding target concurrency? Active sessions by vertical/platform vs target</figcaption><canvas id="c-active"></canvas></figure>
-        <figure><figcaption>What is being sent? Events/s by call type</figcaption><canvas id="c-type"></canvas></figure>
-        <figure><figcaption>Is the SDK keeping up? Sent, failed and dropped per second; queue depth</figcaption><canvas id="c-sdk"></canvas></figure>
-        <figure><figcaption>Where do users drop off? Funnel steps (cumulative)</figcaption><div id="funnels" class="funnels"></div></figure>
-        <figure><figcaption>Busiest events in the last second</figcaption><ol id="top" class="top small"></ol></figure>
+        <figure class="wide">
+          <figcaption><strong>Active users</strong> <span class="hint">by app and platform. The dashed line is the target the simulator is aiming for.</span></figcaption>
+          <div class="chart-box tall"><canvas id="c-active" role="img" aria-label="Active users over time by app and platform"></canvas></div>
+        </figure>
+        <figure>
+          <figcaption><strong>Events per second</strong> <span class="hint">by Segment call type</span></figcaption>
+          <div class="chart-box"><canvas id="c-type" role="img" aria-label="Events per second by call type"></canvas></div>
+        </figure>
+        <figure id="sdk-figure">
+          <figcaption><strong>Delivery to the collector</strong> <span class="hint">per second. Queue size uses the right-hand axis.</span></figcaption>
+          <div class="chart-box"><canvas id="c-sdk" role="img" aria-label="Events sent, failed and dropped per second"></canvas></div>
+        </figure>
+        <figure>
+          <figcaption><strong>Conversion funnels</strong> <span class="hint">share of users reaching each step</span></figcaption>
+          <div id="funnels" class="funnels"></div>
+        </figure>
+        <figure>
+          <figcaption><strong>Most frequent events</strong> <span class="hint">in the last second</span></figcaption>
+          <ol id="top" class="top"></ol>
+        </figure>
       </div>
-    </div>
-  </section>
-</main>
+    </section>
+
+    <section class="history" aria-labelledby="history-title">
+      <h2 id="history-title">Previous runs</h2>
+      <p id="history-empty" class="hint">Finished runs and their exports will be listed here.</p>
+      <table id="history" hidden>
+        <thead><tr><th scope="col">Run</th><th scope="col">Downloads</th></tr></thead>
+        <tbody id="past-runs"></tbody>
+      </table>
+    </section>
+  </main>
+</div>
 <script src="/static/app.js"></script>
 </body>
 </html>

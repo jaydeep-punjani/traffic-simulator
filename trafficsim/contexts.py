@@ -7,12 +7,14 @@ import uuid
 
 from .identity import User, weighted
 
+# Current Segment client SDKs and the exact `context.library.name` each one sends. analytics-ios and
+# analytics-android reached end of support in March 2026, so apps report their successors.
 LIBRARIES = {
-    "web": {"name": "analytics.js", "version": "next-1.72.0"},
-    "ios": {"name": "analytics-ios", "version": "4.1.8"},
-    "android": {"name": "analytics-android", "version": "4.11.3"},
-    "pc": {"name": "analytics-csharp", "version": "2.4.2"},
-    "ps5": {"name": "analytics-csharp", "version": "2.4.2"},
+    "web": {"name": "analytics.js", "version": "next-1.84.3"},
+    "ios": {"name": "analytics-swift", "version": "1.10.4"},
+    "android": {"name": "analytics-kotlin", "version": "1.27.0"},
+    "pc": {"name": "Analytics-CSharp", "version": "3.0.0"},
+    "ps5": {"name": "Analytics-CSharp", "version": "3.0.0"},
 }
 
 BROWSERS = [

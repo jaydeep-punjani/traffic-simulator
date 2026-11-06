@@ -1,264 +1,261 @@
 # trafficsim
 
-Application traffic simulator for three product categories. It models concurrent users and their sessions, then sends real
-events through the open-source Segment SDK
-([`segment-analytics-python`](https://github.com/segmentio/analytics-python)) to any Segment-compatible collector, such as
-RudderStack, Jitsu, your own collector, or the bundled mock.
+[![CI](https://github.com/jaydeep-punjani/traffic-simulator/actions/workflows/ci.yml/badge.svg)](https://github.com/jaydeep-punjani/traffic-simulator/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/jaydeep-punjani/traffic-simulator/actions/workflows/codeql.yml/badge.svg)](https://github.com/jaydeep-punjani/traffic-simulator/actions/workflows/codeql.yml)
+[![Release](https://img.shields.io/github/v/release/jaydeep-punjani/traffic-simulator?sort=semver)](https://github.com/jaydeep-punjani/traffic-simulator/releases)
+[![Python](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](docs/compatibility.md#runtime-support)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-| Vertical | Platforms | Event schema |
+Simulate realistic app traffic for **video streaming**, **e-commerce** and **gaming** products, and send it as real
+analytics events through the open-source [Segment SDK](https://github.com/segmentio/analytics-python) to any
+Segment-compatible collector: Segment, RudderStack, Jitsu, your own endpoint, or the bundled mock.
+
+Use it to load-test an event pipeline, fill a warehouse with believable data, demo dashboards, or rehearse a launch
+day before it happens.
+
+![trafficsim dashboard during a flash-sale run](docs/images/dashboard.png)
+
+## What it does
+
+- **Thousands to 100k+ concurrent users**, each with a session that follows a journey: browsing, watching, carts and
+  checkout, matchmaking and matches.
+- **Traffic patterns** you can stack: daily and weekly cycles per region, ramps, steps, spikes, sine waves and custom
+  curves.
+- **Scenario events**: premieres, live events, flash sales, Black Friday, push campaigns, game launches, patch days
+  and tournaments. Schedule them in a scenario or fire them live from the dashboard.
+- **Real time or accelerated** (60x plays an hour per minute), with event timestamps on the simulated clock and an
+  anchor you choose (now, yesterday, last week).
+- **Live dashboard** with charts and delivery health, plus JSON / CSV exports. Every event is accounted for: sent,
+  failed, dropped or undelivered, never silently lost.
+
+| Vertical | Platforms | Events follow |
 |---|---|---|
-| Video streaming | web, iOS, Android | [Segment Video Spec](https://segment.com/docs/connections/spec/video/) |
-| E-commerce | web, iOS, Android | [Segment E-commerce Spec](https://segment.com/docs/connections/spec/ecommerce/v2/) |
-| Gaming | PC, PS5 | Custom game event set |
+| Video streaming | Web, iOS, Android | [Segment Video Spec](https://www.twilio.com/docs/segment/connections/spec/video) |
+| E-commerce | Web, iOS, Android | [Segment E-commerce Spec v2](https://www.twilio.com/docs/segment/connections/spec/ecommerce/v2) |
+| Gaming | PC, PS5 | A custom game event set in Segment naming style |
 
-Every event's `context` (library, device, os, app, network, screen, userAgent, locale, timezone, ip) matches its source
-platform. Web events look like `analytics.js`, apps like `analytics-ios` / `analytics-android`, and PC/PS5 like a C# SDK
-inside the game client. Web uses `page`, apps and consoles use `screen`, and actions use `track`. Anonymous users who
-sign in or sign up get `identify` (plus `alias` on signup).
+Event names, journeys and properties live in YAML, so you can rename events or reshape journeys without touching code.
 
-## Documentation
+## What it sends
 
-| Document | Contents |
-|---|---|
-| [docs/architecture.md](docs/architecture.md) | Processes, modules, arrival model, SDK accounting, run lifecycle. |
-| [docs/scenario-reference.md](docs/scenario-reference.md) | Every scenario field, pattern, event preset and catalog option, with defaults and limits. |
-| [docs/operations.md](docs/operations.md) | Commands, destinations, exports, timestamps, tuning, security, troubleshooting. |
-| [docs/audit-2026-11.md](docs/audit-2026-11.md) | Audit findings, fixes and verification results. |
+Every event goes through `segment-analytics-python` to `POST {host}/v1/batch`, exactly like a production server
+would send it. Each message's `context` matches the platform it pretends to come from, including the Segment client
+library that platform would use:
+
+| Platform | `context.library.name` | Calls |
+|---|---|---|
+| Web | `analytics.js` | `page`, `track`, `identify`, `alias` |
+| iOS | `analytics-swift` | `screen`, `track`, `identify`, `alias` |
+| Android | `analytics-kotlin` | `screen`, `track`, `identify`, `alias` |
+| PC, PS5 | `Analytics-CSharp` | `screen`, `track`, `identify`, `alias` |
+
+<details>
+<summary>Example: <code>Video Playback Started</code> from the iOS app</summary>
+
+```json
+{
+  "type": "track",
+  "event": "Video Playback Started",
+  "properties": {
+    "session_id": "22f08a19-2",
+    "content_asset_ids": ["cnt-00003"],
+    "content_pod_ids": ["pod-cnt-00003-0"],
+    "position": 0,
+    "total_length": 5880,
+    "bitrate": 1500,
+    "framerate": 24,
+    "video_player": "AVPlayer",
+    "sound": 66,
+    "full_screen": true,
+    "ad_enabled": false,
+    "quality": "720p",
+    "livestream": false
+  },
+  "userId": "st_d0c7fd6daf8243c1943f",
+  "anonymousId": "22f08a19-0bbb-4e85-b998-07cd8538604e",
+  "timestamp": "2026-01-01T00:00:57.779+00:00",
+  "context": {
+    "library": {"name": "analytics-swift", "version": "1.10.4"},
+    "app": {"name": "StreamFlix", "version": "8.12.0", "build": "81200", "namespace": "com.streamflix.ios"},
+    "device": {"id": "721b4e1e-…", "advertisingId": "2C189733-…", "adTrackingEnabled": false,
+               "manufacturer": "Apple", "model": "iPhone14,7", "name": "iPhone 14", "type": "ios"},
+    "os": {"name": "iOS", "version": "18.0.1"},
+    "network": {"wifi": false, "cellular": true, "bluetooth": false, "carrier": "AT&T"},
+    "screen": {"width": 1170, "height": 2532, "density": 3},
+    "ip": "32.166.8.27", "locale": "en-US", "timezone": "America/Chicago",
+    "userAgent": "StreamFlix/8.12.0 (iPhone; iOS 18.0.1; Scale/3.00)"
+  }
+}
+```
+
+The SDK adds `messageId` and wraps messages in a batch with `sentAt` and `writeKey`.
+</details>
+
+Spec coverage, per-platform context fields, payload sizes and collector support are measured and listed in
+**[docs/compatibility.md](docs/compatibility.md)**.
 
 ## Quick start
 
-Requires Python 3.10 or newer (CI covers 3.10–3.13; also tested on 3.15).
+### Docker (no Python needed)
 
 ```bash
-uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -e '.[dev]'
-source .venv/bin/activate
+git clone https://github.com/jaydeep-punjani/traffic-simulator.git && cd traffic-simulator
+docker compose up -d --build        # dashboard on http://127.0.0.1:8000, mock collector on :8088
+```
 
-trafficsim mock-collector                       # terminal 1: local Segment-compatible endpoint on :8088
+Open <http://127.0.0.1:8000>, pick a scenario and press **Practice run** (nothing is sent) or **Start** (events go to
+the bundled mock collector). Or run one headless:
+
+```bash
+docker compose run --rm sim run ecom_flash_sale --max-wall 60
+curl -s http://127.0.0.1:8088/stats   # what the collector received
+```
+
+Released images are also on GHCR: `docker run --rm -p 127.0.0.1:8000:8000 ghcr.io/jaydeep-punjani/traffic-simulator`.
+See [docs/docker.md](docs/docker.md).
+
+### Python
+
+Requires Python 3.10 or newer.
+
+```bash
+git clone https://github.com/jaydeep-punjani/traffic-simulator.git && cd traffic-simulator
+python -m venv .venv && source .venv/bin/activate
+pip install -e .
+
+trafficsim mock-collector                       # terminal 1: Segment-compatible endpoint on :8088
 trafficsim serve                                # terminal 2: dashboard on http://127.0.0.1:8000
-trafficsim run ecom_flash_sale --max-wall 60    # or run headless from the CLI
+trafficsim run ecom_flash_sale --max-wall 60    # or run headless
 ```
 
-Other commands:
+### Send to your collector
 
 ```bash
-trafficsim list                       # bundled scenarios
-trafficsim validate                   # validate every scenario (or: trafficsim validate my.yaml)
-trafficsim run mixed_all --speed 120 --concurrency 20000 --start-at -24h --set verticals.gaming.weight=0.5
-trafficsim run stress_100k --dry-run  # simulate without sending anything
+export SEGMENT_HOST=https://your-collector.example.com   # the SDK posts to $SEGMENT_HOST/v1/batch
+export SEGMENT_WRITE_KEY=...                              # or one key per source, e.g. ECOM_IOS_WRITE_KEY
+trafficsim run mixed_all --start-at -24h
 ```
 
-To install without a checkout, build a wheel (`uv build --wheel`) and `pip install` it. Scenarios, catalogs and the
-example destinations are bundled; set `TRAFFICSIM_HOME` to use your own directory of them.
+Write keys can be set per source (vertical × platform). Keep them in the environment or in the gitignored
+`config/destinations.yaml`; see [operations.md#destinations](docs/operations.md#destinations).
 
-Each run writes `runs/<run-id>/summary.json` and `timeseries.csv`. If `sample_payloads` > 0, it also writes
-`payloads-w*.jsonl` with a sample of the exact payloads sent.
+## Common commands
+
+```bash
+trafficsim list                                    # bundled scenarios
+trafficsim validate                                # check every scenario (or one: trafficsim validate my.yaml)
+trafficsim run baseline_streaming --dry-run        # simulate without sending
+trafficsim run mixed_all --speed 120 --concurrency 20000 --start-at -24h --set verticals.gaming.weight=0.5
+trafficsim run stress_100k --workers 10            # 100k concurrent users at 60x
+trafficsim --help                                  # everything else
+```
+
+Each run writes `runs/<run-id>/summary.json` and `timeseries.csv`, and optionally a sample of the exact payloads.
+
+## Scenarios
+
+A scenario is a YAML file in `scenarios/`. Bundled ones:
+
+| Scenario | What happens |
+|---|---|
+| `baseline_streaming`, `baseline_ecom`, `baseline_gaming` | A normal day for one vertical |
+| `streaming_premiere` | A series premiere pulls viewers to one title, then a live sports final |
+| `ecom_flash_sale` | A one-hour flash sale with a conversion boost, then a mobile push campaign |
+| `ecom_black_friday` | Four days of Black Friday traffic, replayed into the past at 240x |
+| `gaming_launch_day` | A game launch: installs, tutorials, first matches |
+| `gaming_tournament` | A patch-day login spike, then a 4-hour tournament that floods matchmaking |
+| `mixed_all` | All three verticals together, one scenario event each |
+| `stress_100k` | 100k concurrent users at 60x |
+
+A small scenario:
+
+```yaml
+name: Launch day
+start_at: -24h           # now | -24h | 2026-11-27T00:00:00Z
+duration: 12h
+speed: 60                # 1 = real time
+seed: 42                 # same seed, same users and journeys
+traffic:
+  base_concurrency: 10000
+  regions: {us: 0.5, eu: 0.3, apac: 0.2}
+  patterns:
+    - {type: diurnal, floor: 0.1}                 # daily cycle in each region's local time
+    - {type: ramp, from: 0.2, to: 1, duration: 30m}
+verticals:
+  gaming:
+    platforms: {pc: 0.6, ps5: 0.4}
+events:
+  - {type: game_launch, at: +1h, magnitude: 6}
+  - {type: tournament, at: +5h, hold: 2h, platforms: [pc]}
+```
+
+| Vertical | Scenario events |
+|---|---|
+| Streaming | `premiere`, `live_event` |
+| E-commerce | `flash_sale`, `black_friday`, `campaign_push` |
+| Gaming | `game_launch`, `patch_day`, `tournament`, `weekend_event` |
+| Any | `custom` |
+
+Every field, pattern and event option, with defaults and limits: [docs/scenario-reference.md](docs/scenario-reference.md).
+
+## Timestamps
+
+An event's `timestamp` is the **simulated** time. An accelerated run that starts `now` produces timestamps in the
+future, which some collectors adjust or reject. For historical-looking data, start in the past (`--start-at -24h`);
+for live pipelines, use `speed: 1`. The CLI and dashboard warn you. Details:
+[operations.md#timestamps](docs/operations.md#timestamps).
 
 ## How it works
 
 ```mermaid
 flowchart LR
-  subgraph Coordinator
-    S[Scenario YAML] --> P[TrafficPlanner<br/>patterns x overlays]
-    C[SimClock<br/>speed / pause] --> P
-    A[StatsAggregator] --> API[FastAPI REST + WebSocket<br/>dashboard]
+  S[Scenario YAML] --> C[Coordinator<br/>clock, plan, stats, API]
+  C -- targets and live events --> W1[Worker 1]
+  C -- targets and live events --> WN[Worker N]
+  subgraph Worker
+    W1 --> J[Sessions walk journeys<br/>per vertical] --> SDK[Segment SDK<br/>one client per source]
   end
-  subgraph "Worker 1..N (processes)"
-    W[Arrival control<br/>Little's law] --> H[Session heap]
-    H --> J[Journey state machines<br/>per vertical]
-    J --> X[Context builder] --> SDK[Segment SDK clients<br/>one per source]
-  end
-  P -- targets, overlays, clock --> W
-  SDK -- /v1/batch --> COL[(Collector)]
-  W -- stats every 1s --> A
+  SDK -- POST /v1/batch --> COL[(Your collector)]
+  W1 -- stats every second --> C
+  C --> D[Dashboard and exports]
 ```
 
-- **Cohorts**: a cohort is a (vertical, platform, region) combination. Its target concurrency is
-  `base_concurrency × vertical weight × platform share × region share × patterns × overlays`.
-- **Arrivals**: each worker owns a hash shard of every cohort. It starts sessions with a Poisson arrival rate that tracks
-  the target, using departures plus a correction term (Little's law). Session lengths are lognormal (`mean_minutes`,
-  `sigma`, min/max). With warm start, a run begins at the target concurrency instead of ramping up from zero.
-- **Journeys**: each session walks a weighted Markov state machine defined in its vertical's catalog, including
-  playback heartbeats, ads, carts, checkout and matches. Scenario events bias transition weights; for example, a flash
-  sale raises add-to-cart and checkout probability.
-- **Identity**: users come from a seeded, deterministic pool per cohort with stable anonymousId/userId/traits, country,
-  locale and device. Returning users keep their identity across sessions within a run.
-- **Emission**: there is one SDK `Client` per source (vertical × platform) per worker, using the source's write key.
-  - The SDK handles batching, consumer threads, retries/backoff, gzip, auth and `sentAt`.
-  - The SDK's `context.library` would otherwise overwrite the platform library, so the platform library is kept.
-  - Queue-full drops, upload failures and queue depth are counted and shown. Nothing fails silently.
-  - Workers back off when an SDK queue is more than 80% full.
+The coordinator turns patterns and scenario events into a target number of users per vertical, platform and region.
+Worker processes split the users between them, start and end sessions to hit the target, walk each session through
+its journey, and hand events to the Segment SDK. More in [docs/architecture.md](docs/architecture.md).
 
-## Dashboard
+## Performance
 
-`trafficsim serve` (default `http://127.0.0.1:8000`) provides:
+On an Apple M2 Pro laptop with the mock collector on the same machine, `stress_100k` held **104k concurrent users**
+at 60x and sent **14.29M events** (about 110k events/s). The collector received every one: 0 failed, 0 dropped,
+0 undelivered. One worker process produces roughly 10k events/s. Tuning:
+[operations.md#sizing-and-tuning](docs/operations.md#sizing-and-tuning).
 
-- **Setup**: pick a scenario, then edit base concurrency, speed, duration, start time, seed, workers, the events/s cap,
-  payload sampling and platform mix. You can also edit the full YAML. *Validate* shows the planned peak.
-- **Live controls**: pause/resume, stop, change speed, and trigger any scenario event (flash sale, premiere,
-  tournament...) immediately with an optional magnitude and hold time.
-- **Charts**: active sessions by vertical/platform against the target; events/s by call type; SDK sent/failed/dropped
-  rates and queue depth; funnels (playback, ads, purchase, match, store); the busiest events; active overlays and sim
-  clock.
-- **Exports**: summary JSON and timeseries CSV for the current run (generated on demand), and links to past runs.
+## Documentation
 
-API: `GET /api/meta`, `GET /api/scenarios[/{id}]`, `POST /api/validate`, `POST /api/runs`
-(`{"scenario": id | "yaml": text, "overrides": {"dotted.key": value}, "dry_run": bool}`), `GET /api/runs/current`,
-`POST /api/runs/current/{pause|resume|stop}`, `POST /api/runs/current/speed {"speed": 60}`,
-`POST /api/runs/current/events {"type": "flash_sale", "magnitude": 3, "hold": "30m"}`,
-`GET /api/runs/current/export/{summary.json|timeseries.csv}`, `GET /api/runs/current/series?last=N`,
-`GET /api/runs/current/summary`, `GET /api/runs`, `GET /api/runs/{id}/files/{name}`, `GET /healthz`, and WebSocket
-`/ws`. The WebSocket sends
-a `hello` with the recent series, then `point` once per second, then `finished`.
+Everything is indexed in [docs/README.md](docs/README.md).
 
-## Destinations and write keys
-
-`config/destinations.example.yaml` is used unless `config/destinations.yaml` exists (that file is gitignored). Values
-support `${ENV_VAR:-default}`:
-
-```yaml
-host: ${SEGMENT_HOST:-http://localhost:8088}       # SDK posts to {host}/v1/batch
-default_write_key: ${SEGMENT_WRITE_KEY:-dev-write-key}
-sources:                                           # "<vertical>_<platform>" → "<vertical>" → default
-  ecom_ios: ${ECOM_IOS_WRITE_KEY:-}
-  gaming_ps5: ${GAMING_PS5_WRITE_KEY:-}
-```
-
-Keep real keys in the environment or in the gitignored file, never in a committed file. `--host` (CLI) and
-`trafficsim serve --host` override the collector URL. Typical hosts are a RudderStack data plane (`http://<dp>:8080`), a
-Jitsu Segment-compatible endpoint, or the bundled `trafficsim mock-collector` (`GET :8088/stats`, `GET /sample`,
-`POST /reset`).
-
-## Authoring scenarios
-
-Scenarios live in `scenarios/*.yaml`. Any field can be overridden with `--set dotted.key=value` or from the dashboard. The full field list, defaults and limits are in [docs/scenario-reference.md](docs/scenario-reference.md).
-
-```yaml
-name: My launch day
-start_at: now            # now | -24h | +1h | 2026-11-27T00:00:00Z
-duration: 12h
-speed: 60                # 1 = real time, 60 = one simulated hour per wall-clock minute
-seed: 42                 # reproducible users and journeys
-workers: null            # default: min(CPUs, peak/1500)
-events_per_sec_cap: null # optional global throttle
-sample_payloads: 0.001   # fraction of payloads written to runs/<id>/payloads-w*.jsonl
-sdk: {upload_size: 100, upload_interval: 0.5, max_queue_size: 50000, threads: 1, gzip: false}
-traffic:
-  base_concurrency: 10000
-  regions: {us: 0.45, eu: 0.30, apac: 0.15, latam: 0.05, india: 0.05}   # drives timezone + locale/country
-  patterns:              # multiplicative; each may be scoped with verticals/platforms/regions
-    - {type: diurnal, floor: 0.1}                       # per-vertical 24h curve in each region's local time
-    - {type: weekly, factors: [1, 1, 1, 1, 1.1, 1.3, 1.25]}
-    - {type: ramp, from: 0.2, to: 1, duration: 30m}
-    - {type: spike, at: +2h, rise: 5m, hold: 20m, decay: 30m, magnitude: 3, platforms: [ios]}
-    - {type: step, initial: 1, steps: [{at: +6h, value: 0.5}]}
-    - {type: sine, period: 1h, amplitude: 0.1}
-    - {type: custom, points: [[0s, 1], [1h, 2], [2h, 1]], repeat: 2h}
-verticals:
-  streaming:
-    weight: 0.5
-    platforms: {web: 0.3, ios: 0.35, android: 0.35}
-    session: {mean_minutes: 35, sigma: 0.9, min_minutes: 0.5, max_minutes: 300}
-    event_names: {playback_started: "Playback Began"}   # rename any catalog event
-    params: {content_titles: 500}                        # override catalog params
-  gaming: {weight: 0.5}
-events:                  # scenario event overlays
-  - {type: game_launch, at: +1h, magnitude: 6}
-  - {type: tournament, at: +5h, hold: 2h, platforms: [pc]}
-  - {type: custom, vertical: ecom, at: +3h, magnitude: 2, bias: {add_to_cart: 2}, featured: {coupon: SPRING}}
-```
-
-**Scenario events** have a rise/hold/decay envelope. While active, they multiply concurrency for their scope, bias
-journey transitions, and feature content in event properties. Any preset field (`rise`, `hold`, `decay`, `magnitude`,
-`platforms`, `regions`, `bias`, `featured`) can be overridden.
-
-| Vertical | Event types |
+| Document | Contents |
 |---|---|
-| Streaming | `premiere` (spike, plays shift to a featured title), `live_event` (sharp ramp, long hold, livestream) |
-| E-commerce | `flash_sale` (spike, conversion boost, sale SKUs and coupon), `black_friday` (multi-day elevation), `campaign_push` (iOS/Android push burst with campaign context) |
-| Gaming | `game_launch` (huge ramp, installs, tutorials, first sessions), `patch_day` (login/update spike), `tournament` (matchmaking surge), `weekend_event` (double XP) |
-| Any | `custom` (requires `vertical`) |
-
-Bundled scenarios:
-- `baseline_streaming`, `baseline_ecom`, `baseline_gaming`
-- `streaming_premiere`, `ecom_flash_sale`, `ecom_black_friday` (starts at `-4d`), `gaming_launch_day`,
-  `gaming_tournament`, `mixed_all`
-- `stress_100k` (100k concurrent sessions at 60x)
-
-### Catalogs: events, properties, journeys
-
-`catalogs/{streaming,ecom,gaming}.yaml` define, for each vertical:
-- the app identity
-- `events` (logical key → event name)
-- `funnels`
-- the `journey`
-
-A journey is a set of states, each with:
-- an optional `view` (`page` on web, `screen` on apps)
-- `track` events
-- `dwell` seconds
-- weighted `next` transitions
-
-Special states use handlers in `trafficsim/verticals/*.py` for playback, checkout and matches. State names are also the
-keys that scenario-event `bias` multiplies. Point a scenario at your own copy with `verticals.<v>.catalog: path.yaml`.
-To rename events without forking a catalog, use `verticals.<v>.event_names`.
-
-## Timestamps
-
-An event's `timestamp` is the **simulated** time, anchored at `start_at`; `sentAt` is when the SDK sent it. An
-accelerated run that starts at `now` stamps events in the future (a 2-hour scenario at 60x ends ~2 hours ahead), which
-collectors that skew-correct with `sentAt` will distort and some warehouses reject. The CLI and dashboard warn when this
-will happen. For historical data, start in the past, for example `--start-at -24h`. Real-time runs (`speed: 1`) are safe
-for any pipeline. Details: [docs/operations.md#timestamps](docs/operations.md#timestamps).
+| [compatibility.md](docs/compatibility.md) | What is sent, Segment spec coverage, collectors, runtimes |
+| [dashboard.md](docs/dashboard.md) | Dashboard walkthrough, REST API and WebSocket |
+| [scenario-reference.md](docs/scenario-reference.md) | Every scenario and catalog option |
+| [operations.md](docs/operations.md) | Destinations, exports, timestamps, tuning, security, troubleshooting |
+| [docker.md](docs/docker.md) | Image and compose stack |
+| [architecture.md](docs/architecture.md) | How the engine works |
 
 ## Security
 
-The dashboard has no authentication and binds to `127.0.0.1` by default; keep it there or put it behind an
-authenticating proxy. It rejects cross-origin writes and WebSocket connections, serves a strict CSP with vendored
-Chart.js, accepts only scenario *names* (never paths) over the API, and bounds request sizes and numeric inputs. Write
-keys stay in environment variables or the gitignored `config/destinations.yaml` and are masked in API output. See
-[docs/operations.md#security](docs/operations.md#security).
+The dashboard has no authentication and listens on `127.0.0.1` by default. Keep it there or put it behind an
+authenticating proxy. Never commit write keys. To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
-## Scale and throughput
+## Contributing
 
-Measured on a 10-core laptop, with the mock collector on the same machine:
+Bug reports, ideas and pull requests are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md); coding agents should
+read [AGENTS.md](AGENTS.md). Please follow the [Code of Conduct](CODE_OF_CONDUCT.md). Questions go to
+[Discussions](https://github.com/jaydeep-punjani/traffic-simulator/discussions).
 
-- `stress_100k` with 10 workers held 100k concurrent sessions (peak 104.1k) at 60x for the 2-hour scenario (130 wall
-  seconds).
-  - It sent 14.29M events at an average of about 110k events/s. Short bursts went higher, and the SDK queues absorbed
-    them without dropping anything.
-  - The collector received all 14,289,970 events, with 0 failed, 0 dropped and 0 undelivered.
-  - Workers ran up to ~400 simulated seconds (~7 wall seconds) behind the clock, because the box was CPU-bound with
-    the collector competing for cores. Event timestamps stay exact either way.
-  - The dashboard shows this as *Sim lag*.
-- One worker generates roughly 10k+ events/s through the SDK. Event volume scales with
-  `concurrency × speed`: 100k sessions at real time is about 1.7k events/s, and the same at 60x is about 100k events/s.
-- If lag grows, use more workers or machines, a lower `speed`, `events_per_sec_cap`, or larger `sdk.upload_size` /
-  `sdk.threads`. Dropped events mean an SDK queue overflowed. Raise `sdk.max_queue_size` or slow down. Drops are always
-  reported.
-- When a run stops, workers drain SDK queues for up to 60 s before exports are written.
+## License
 
-## Development
-
-```bash
-pytest                         # unit, engine and API tests; e2e tests use a real in-process mock collector
-pytest --cov                   # with coverage (92 %)
-ruff check . && ruff format --check .
-mypy trafficsim
-```
-
-CI (`.github/workflows/ci.yml`) runs lint, type checks, tests on Python 3.10–3.13 and macOS, and installs the built
-wheel outside the source tree. Tool configuration lives in `pyproject.toml`.
-
-## Layout
-
-```
-trafficsim/   clock, config, patterns, planner, events (overlays), identity, contexts, journeys,
-              verticals/{streaming,ecom,gaming}.py, scheduler, worker, emitter (Segment SDK), stats,
-              runner (coordinator), export, api/app.py, dashboard/ (vendored Chart.js), mock_collector.py, cli.py
-catalogs/     event names, properties, journeys, funnels per vertical
-scenarios/    bundled scenarios
-config/       destinations.example.yaml
-docs/         architecture, scenario reference, operations, audit report
-tests/        pytest suite
-```
+[MIT](LICENSE). The dashboard bundles [Chart.js](https://www.chartjs.org/) (MIT). trafficsim is not affiliated with
+Segment, Twilio, RudderStack or Jitsu.

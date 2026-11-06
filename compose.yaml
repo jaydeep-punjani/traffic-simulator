@@ -1,0 +1,89 @@
+# Local trafficsim stack: dashboard + bundled mock collector, plus an on-demand headless runner.
+#
+#   docker compose up -d --build              # dashboard on http://localhost:8000, collector on :8088
+#   docker compose run --rm sim run stress_100k --max-wall 150
+#   SEGMENT_HOST=https://collector.example.com docker compose up -d --no-deps dashboard
+#
+# Write keys come from your shell or a gitignored .env next to this file (see docs/docker.md).
+# Ports are published on 127.0.0.1 only: the dashboard has no authentication.
+
+name: trafficsim
+
+x-trafficsim: &trafficsim
+  build: .
+  image: trafficsim:local
+  init: true # reap worker processes and forward SIGTERM
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+
+x-destination-env: &destination-env
+  SEGMENT_HOST: ${SEGMENT_HOST:-http://collector:8088}
+  # Names without values are copied from your shell / .env when set, and left unset otherwise.
+  SEGMENT_WRITE_KEY:
+  STREAMING_WEB_WRITE_KEY:
+  STREAMING_IOS_WRITE_KEY:
+  STREAMING_ANDROID_WRITE_KEY:
+  ECOM_WEB_WRITE_KEY:
+  ECOM_IOS_WRITE_KEY:
+  ECOM_ANDROID_WRITE_KEY:
+  GAMING_PC_WRITE_KEY:
+  GAMING_PS5_WRITE_KEY:
+
+x-scenario-mounts: &scenario-mounts
+  - runs:/data/runs
+  - ./scenarios:/app/scenarios:ro
+  - ./catalogs:/app/catalogs:ro
+
+services:
+  collector:
+    <<: *trafficsim
+    command: ["mock-collector", "--bind", "0.0.0.0", "--port", "8088"]
+    ports:
+      - "127.0.0.1:${COLLECTOR_PORT:-8088}:8088"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8088/stats', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  dashboard:
+    <<: *trafficsim
+    command: ["serve", "--bind", "0.0.0.0", "--port", "8000"]
+    environment: *destination-env
+    volumes: *scenario-mounts
+    ports:
+      - "127.0.0.1:${DASHBOARD_PORT:-8000}:8000"
+    depends_on:
+      collector:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    # An active run is stopped and drained on shutdown (up to ~30 s).
+    stop_grace_period: 100s
+    restart: unless-stopped
+
+  # Headless runs: `docker compose run --rm sim run <scenario> [flags]`. Exports land in the `runs` volume.
+  sim:
+    <<: *trafficsim
+    profiles: [cli]
+    command: ["list"]
+    environment: *destination-env
+    volumes: *scenario-mounts
+    depends_on:
+      collector:
+        condition: service_healthy
+    # SIGTERM drains the SDK queues (up to drain_timeout + 15 s).
+    stop_grace_period: 90s
+
+volumes:
+  runs:

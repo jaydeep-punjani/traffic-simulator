@@ -1,0 +1,27 @@
+# Keep the build context small and never ship secrets or local state into the image.
+.git
+.github
+.venv
+**/__pycache__
+**/*.pyc
+*.egg-info
+build
+dist
+runs
+tests
+docs
+htmlcov
+.coverage
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Secrets: real write keys live in these files.
+.env
+.env.*
+config/destinations.yaml
+
+# Container files themselves (changing them should not bust the build cache).
+Dockerfile
+compose.yaml
+.dockerignore

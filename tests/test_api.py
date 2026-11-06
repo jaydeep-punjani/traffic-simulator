@@ -16,6 +16,8 @@ def test_static_and_metadata(client):
     r = client.get("/")
     assert r.status_code == 200 and "trafficsim" in r.text and "/static/app.js" in r.text
     assert client.get("/static/app.js").status_code == 200
+    assert client.get("/static/app.js").headers["cache-control"] == "no-cache"
+    assert "style-src 'self'" in r.headers["content-security-policy"]
     assert client.get("/static/styles.css").status_code == 200
     meta = client.get("/api/meta").json()
     assert set(meta["verticals"]) == {"streaming", "ecom", "gaming"}
@@ -29,7 +31,9 @@ def test_static_and_metadata(client):
 
 
 def test_validate(client):
-    ok = client.post("/api/validate", json={"scenario": "baseline_ecom", "overrides": {"traffic.base_concurrency": 1000}})
+    # Pinned to a Monday: the weekly pattern lifts Friday-Sunday above base concurrency.
+    overrides = {"traffic.base_concurrency": 1000, "start_at": "2026-11-02T00:00:00Z"}
+    ok = client.post("/api/validate", json={"scenario": "baseline_ecom", "overrides": overrides})
     assert ok.status_code == 200 and ok.json()["peak"] <= 1000
     bad = client.post("/api/validate", json={"yaml": "name: x\nverticals: {gaming: {platforms: {ios: 1}}}"})
     assert bad.status_code == 422

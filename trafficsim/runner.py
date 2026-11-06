@@ -51,11 +51,30 @@ def timestamp_warnings(scenario: Scenario, start_sim: float, end_sim: float | No
     ]
 
 
+CGROUP_CPU_MAX = Path("/sys/fs/cgroup/cpu.max")
+
+
+def available_cpus() -> int:
+    """CPUs this process may actually use.
+
+    os.cpu_count() reports every host CPU, even inside a container limited with
+    `--cpus` / compose `cpus:`. Honour the affinity mask and a cgroup v2 quota.
+    """
+    getaffinity = getattr(os, "sched_getaffinity", None)  # Linux only
+    n = len(getaffinity(0)) if getaffinity else (os.cpu_count() or 2)
+    try:
+        quota, period = CGROUP_CPU_MAX.read_text().split()[:2]
+        if quota != "max":
+            n = min(n, math.ceil(int(quota) / int(period)))
+    except (OSError, ValueError):
+        pass
+    return max(1, n)
+
+
 def default_workers(scenario: Scenario, peak: float) -> int:
     if scenario.workers:
         return scenario.workers
-    cpus = os.cpu_count() or 2
-    return max(1, min(cpus, math.ceil(peak / 1500)))
+    return max(1, min(available_cpus(), math.ceil(peak / 1500)))
 
 
 class Run:
@@ -352,6 +371,8 @@ class Run:
             "run_id": self.id,
             "state": self.state,
             "scenario": self.scenario.name,
+            "dry_run": not self.send,
+            "verticals": list(self.planner.verticals),
             "workers": self.n_workers,
             "speed": self.clock.speed,
             "paused": self.clock.paused,

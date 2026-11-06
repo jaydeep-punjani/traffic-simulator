@@ -1,0 +1,45 @@
+name: Feature request
+description: Suggest a new capability, scenario, platform or spec improvement.
+labels: ["enhancement", "triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to simulate or measure, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How should it work? Example scenario YAML, CLI flags or event payloads help a lot.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Traffic patterns / scenario events
+        - Streaming vertical
+        - E-commerce vertical
+        - Gaming vertical
+        - Platform context (web, iOS, Android, PC, PS5)
+        - Segment spec fidelity
+        - Collector compatibility
+        - Dashboard
+        - CLI / exports
+        - Docker / deployment
+        - Documentation
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I would like to work on this myself.

@@ -23,6 +23,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Res
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
+from .. import __version__
 from ..config import (
     DEFAULT_PLATFORM_MIX,
     ID_RE,
@@ -41,7 +42,7 @@ from ..config import (
 from ..events import PRESETS
 from ..export import timeseries_csv_text
 from ..planner import TrafficPlanner
-from ..runner import Run
+from ..runner import STOP_GRACE, Run
 
 log = logging.getLogger("trafficsim.api")
 DASHBOARD = Path(__file__).resolve().parent.parent / "dashboard"
@@ -108,11 +109,13 @@ def create_app(destinations_path: str | None = None, host_override: str | None =
         hub.loop = asyncio.get_running_loop()
         yield
         run = state["run"]
-        if run and run.state != "finished":
-            run.stop()
-            await asyncio.to_thread(run.wait, 30)
+        if run:
+            run.stop()  # no-op once finishing/finished; exports may still be being written, so always wait
+            # Long enough for workers to drain their SDK queues (or be terminated) and for exports to be written.
+            if not await asyncio.to_thread(run.wait, run.drain_timeout + STOP_GRACE + 15):
+                logging.getLogger(__name__).warning("run %s did not finish before shutdown", run.id)
 
-    app = FastAPI(title="trafficsim", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="trafficsim", version=__version__, lifespan=lifespan)
     runs_root = Path(runs_dir) if runs_dir else RUNS_DIR
     start_lock = asyncio.Lock()
 
@@ -132,6 +135,8 @@ def create_app(destinations_path: str | None = None, host_override: str | None =
                 "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; style-src 'self'; "
                 "script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
             )
+            # Revalidate (cheap 304 via ETag) so an upgraded dashboard never runs a stale app.js against new HTML.
+            response.headers.setdefault("Cache-Control", "no-cache")
         return response
 
     def dest():

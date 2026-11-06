@@ -9,6 +9,7 @@ import signal
 import sys
 import time
 
+from . import __version__
 from .config import list_scenarios, load_destinations, load_scenario, parse_set_args
 from .timeutil import fmt_duration, iso_ms
 
@@ -166,6 +167,7 @@ def cmd_mock(args) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(prog="trafficsim", description="Application traffic simulator (Segment SDK)")
+    ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def common_run(p):

@@ -379,6 +379,16 @@ def test_cli_validate_and_list(capsys):
     assert "stress_100k" in capsys.readouterr().out
 
 
+def test_cli_version(capsys):
+    from trafficsim import __version__
+    from trafficsim.cli import main
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--version"])
+    assert exc.value.code == 0
+    assert capsys.readouterr().out.strip() == f"trafficsim {__version__}"
+
+
 def test_cli_dry_run_writes_exports(tmp_path, capsys):
     from trafficsim.cli import main
 

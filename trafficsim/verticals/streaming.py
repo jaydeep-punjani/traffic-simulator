@@ -120,7 +120,7 @@ class StreamingRuntime(VerticalRuntime):
         p = {
             "session_id": session_id,
             "asset_id": c["asset_id"],
-            "content_pod_id": pod,
+            "pod_id": pod,
             "title": c["title"],
             "program": c["program"],
             "genre": c["genre"],
@@ -154,9 +154,11 @@ class StreamingRuntime(VerticalRuntime):
             player = "ExoPlayer"
         session_id = f"{s.anon_id[:8]}-{s.seq}"
         ads = s.user.traits.get("plan") == "basic" or live
+        pod = f"pod-{c['asset_id']}-{int(pos // 600)}"
         base = {
             "session_id": session_id,
             "content_asset_id": c["asset_id"],
+            "content_pod_id": pod,
             "total_length": total,
             "bitrate": bitrate,
             "framerate": 60 if live else 24,
@@ -169,13 +171,15 @@ class StreamingRuntime(VerticalRuntime):
         }
         s.data["playback"] = base
         s.data["pos"] = pos
-        self.track(s, "playback_started", {**base, "position": int(pos)})
+        # Video Spec: Playback Started carries plural id arrays; later playback events carry the singular ids.
+        started = {k: v for k, v in base.items() if k not in ("content_asset_id", "content_pod_id")}
+        started.update(content_asset_ids=[c["asset_id"]], content_pod_ids=[pod], position=int(pos))
+        self.track(s, "playback_started", started)
         yield rng.uniform(1, 4)
         if ads and rng.random() < 0.8:
             yield from self._ad(s, session_id, "pre", c)
             if s.expired():
                 return None
-        pod = f"pod-{c['asset_id']}-{int(pos // 600)}"
         self.track(s, "content_started", self._content_props(c, session_id, pod, pos))
         mean_watch = float(self.params.get("mean_watch_minutes", 32)) * 60
         abandon_p = min(0.5, hb / mean_watch)

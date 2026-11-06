@@ -44,8 +44,8 @@ def test_every_platform_emits_with_right_context(recorded):
     for platform, lib in LIBRARIES.items():
         assert lib["name"] in seen, platform
     web = [m for m in msgs if m["context"]["library"]["name"] == "analytics.js"]
-    apps = [m for m in msgs if m["context"]["library"]["name"] in ("analytics-ios", "analytics-android")]
-    console = [m for m in msgs if m["context"]["library"]["name"] == "analytics-csharp"]
+    apps = [m for m in msgs if m["context"]["library"]["name"] in ("analytics-swift", "analytics-kotlin")]
+    console = [m for m in msgs if m["context"]["library"]["name"] == "Analytics-CSharp"]
     assert web and all(m["type"] != "screen" for m in web)
     assert any(m["type"] == "page" for m in web) and all("userAgent" in m["context"] for m in web)
     assert all(m["type"] != "page" for m in apps + console)
@@ -65,6 +65,21 @@ def test_event_names_come_from_catalogs(recorded):
     assert tracked and tracked <= names
     for expected in ("Video Playback Started", "Product Viewed", "Match Started"):
         assert expected in tracked
+
+
+def test_video_spec_id_properties(recorded):
+    _, _, msgs, _ = recorded
+    video = [m for m in msgs if m["type"] == "track" and m["event"].startswith("Video ")]
+    started = [m["properties"] for m in video if m["event"] == "Video Playback Started"]
+    assert started
+    for p in started:
+        assert isinstance(p["content_asset_ids"], list) and isinstance(p["content_pod_ids"], list)
+        assert "content_asset_id" not in p and "content_pod_id" not in p
+    other_playback = [m["properties"] for m in video if m["event"].startswith("Video Playback ")]
+    other_playback = [p for p in other_playback if "content_asset_ids" not in p]
+    assert other_playback and all("content_asset_id" in p and "content_pod_id" in p for p in other_playback)
+    content = [m["properties"] for m in video if m["event"].startswith("Video Content ")]
+    assert content and all("asset_id" in p and "pod_id" in p for p in content)
 
 
 def test_timestamps_follow_sim_clock(recorded):

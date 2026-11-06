@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or idea
+    url: https://github.com/jaydeep-punjani/traffic-simulator/discussions
+    about: Ask questions and discuss ideas in GitHub Discussions.
+  - name: Security vulnerability
+    url: https://github.com/jaydeep-punjani/traffic-simulator/security/advisories/new
+    about: Report security problems privately. Do not open a public issue.
+  - name: Documentation
+    url: https://github.com/jaydeep-punjani/traffic-simulator/blob/main/docs/README.md
+    about: Setup, scenario authoring, compatibility and troubleshooting.

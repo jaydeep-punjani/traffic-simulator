@@ -2,7 +2,7 @@
 
 One `SimClient` per source (vertical x platform) per worker. `SimClient`
 subclasses the SDK `Client`, replaces `_enqueue` and runs `SimConsumer` threads so that:
-  * the platform-specific `context.library` we set (analytics-ios, analytics.js ...)
+  * the platform-specific `context.library` we set (analytics-swift, analytics.js ...)
     is preserved instead of being overwritten with analytics-python;
   * the per-message `clean()` + extra `json.dumps` size check are skipped
     (our payloads are already JSON-safe) which roughly doubles throughput;

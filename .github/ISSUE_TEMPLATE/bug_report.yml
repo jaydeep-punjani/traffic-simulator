@@ -1,0 +1,60 @@
+name: Bug report
+description: Something does not work as documented.
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please do **not** report security problems here; see SECURITY.md.
+        Never paste real write keys. They are masked in `summary.json`, but check logs before sharing them.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The exact command or dashboard steps, and the scenario YAML if it is not a bundled one.
+      placeholder: |
+        trafficsim run mixed_all --concurrency 5000 --speed 60 --max-wall 60
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and run summary
+      description: Relevant log output, and the `sdk` / `errors` / `warnings` sections of `runs/<id>/summary.json`.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: trafficsim version
+      description: Output of `trafficsim --version`, or the commit SHA / image tag.
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How do you run it?
+      options:
+        - pip / uv install from source
+        - Wheel from a GitHub release
+        - Docker image (ghcr.io)
+        - docker compose
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, CPU count.
+      placeholder: macOS 15 / Python 3.12 / 10 cores
+  - type: input
+    id: collector
+    attributes:
+      label: Collector
+      description: Where events are sent (bundled mock, RudderStack, Jitsu, custom...) and its version.
