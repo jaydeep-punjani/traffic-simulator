@@ -227,8 +227,8 @@ its journey, and hand events to the Segment SDK. More in [docs/architecture.md](
 ## Performance
 
 On an Apple M2 Pro laptop with the mock collector on the same machine, `stress_100k` held **104k concurrent users**
-at 60x and sent **14.29M events** (about 110k events/s). The collector received every one: 0 failed, 0 dropped,
-0 undelivered. One worker process produces roughly 10k events/s. Tuning:
+at 60x and sent **12.53M events** in 170 s (73.6k events/s on average, peaks of 142k/s). The collector received every
+one: 0 failed, 0 dropped, 0 undelivered. One worker process produces roughly 10k events/s. Tuning:
 [operations.md#sizing-and-tuning](docs/operations.md#sizing-and-tuning).
 
 ## Documentation

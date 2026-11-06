@@ -239,23 +239,24 @@ source code. If you run trafficsim against one of them, please report the result
 
 ## Measured delivery
 
-`stress_100k` with 10 workers on an Apple M2 Pro laptop against the bundled mock collector:
+`stress_100k` with 10 workers on an Apple M2 Pro laptop (other workloads running) against the bundled mock collector
+on the same machine, measured on the 1.0.0 code:
 
 | Metric | Result |
 |---|---|
-| Peak concurrent sessions | 104.1k (target 100k) |
-| Speed | 60x (2 simulated hours in about 130 s wall time) |
-| Events sent by the SDK | 14,289,970 |
-| Events received by the collector | 14,289,970 |
+| Peak concurrent sessions | 104.9k (target 100k); 97–102 % of target during the hold, 0 trimmed |
+| Speed | 60x (2 simulated hours in about 170 s wall time) |
+| Events sent by the SDK | 12,527,742 |
+| Events received by the collector | 12,527,742 |
 | Failed / dropped / undelivered | 0 / 0 / 0 |
-| Average throughput | about 110k events/s |
+| Throughput | 73.6k events/s average; generation peaked at 178k/s and delivery at 142k/s |
 
 ## Reproducing these numbers
 
 ```bash
 # Delivery at scale
 trafficsim mock-collector &                       # :8088
-trafficsim run stress_100k --workers 10 --max-wall 150
+trafficsim run stress_100k --workers 10
 curl -s http://127.0.0.1:8088/stats               # compare "events" with the run's sdk.sent
 
 # Spec coverage: payloads are recorded in-process, nothing is sent

@@ -27,7 +27,7 @@ There is no PyPI package.
    git push origin vX.Y.Z
    ```
 
-6. Watch the `release` workflow. It builds and smoke-tests the wheel, pushes and smoke-tests the image, then creates the
+6. Watch the **Release** workflow. It builds and smoke-tests the wheel, pushes and smoke-tests the image, then creates the
    GitHub Release with the changelog section as notes.
 
 If a release fails after the image was pushed, fix the problem, delete the GitHub Release and tag if they exist

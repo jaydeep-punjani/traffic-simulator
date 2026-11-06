@@ -44,10 +44,12 @@ flowchart LR
 Each worker builds its own `TrafficPlanner` from the scenario and owns a hash shard of every cohort, so `n` workers each
 carry `1/n` of every target.
 
-1. **Arrival control.** Once per step the worker compares each cohort's active sessions with its share of the target.
-   It starts sessions at a Poisson rate `λ = departure_rate + (target − active) / arrival_tau_seconds`, where
-   `departure_rate` is a smoothed observed rate seeded from `target / mean_session_length` (Little's law). Starts never
-   overshoot the target by more than 15 %. If a cohort is more than 15 % above target (for example after a spike ends),
+1. **Arrival control.** Every 0.25 wall seconds, or every 15 sim seconds at high speeds (whichever comes first), the
+   worker compares each cohort's active sessions with its share of the target. Over the elapsed window `dt` it starts a
+   Poisson number of sessions with mean `departure_rate × dt + (target − active) × min(1, dt / arrival_tau_seconds)`,
+   where `departure_rate` is a smoothed observed rate seeded from `target / mean_session_length` (Little's law). The
+   gain is capped at 1 so a long window (a busy worker) cannot over-correct. Starts never take a cohort more than 15 %
+   above target. If a cohort is more than 15 % above target (for example after a spike ends),
    the excess sessions are told to end; they still emit their exit events and are counted as `sessions_trimmed`.
 2. **Warm start.** With `warm_start: true` the run begins at target concurrency, with first steps spread over 60 sim
    seconds. Warm sessions get a length-biased residual lifetime, so they end at the rate a steady-state population

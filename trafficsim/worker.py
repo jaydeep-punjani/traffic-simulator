@@ -38,7 +38,8 @@ from .verticals import RUNTIMES
 
 log = logging.getLogger("trafficsim.worker")
 
-SPAWN_INTERVAL = 0.25  # wall seconds between arrival/effects updates
+SPAWN_INTERVAL = 0.25  # max wall seconds between arrival/effects updates
+SPAWN_SIM_INTERVAL = 15.0  # max sim seconds between them, so departures between refills stay small at high speed
 STATS_INTERVAL = 1.0  # wall seconds between stats reports
 SLICE = 0.05  # wall seconds of session processing between housekeeping
 WARM_SPREAD = 60.0  # sim seconds over which warm-start sessions take their first step
@@ -205,11 +206,12 @@ class Worker:
                 prev = tw / self.mean_length(c[0])
             rate = prev + alpha * (dep - prev)
             self.dep_rate[c] = rate
-            lam = rate + (tw - active) / tau
-            if lam > 0:
-                k = int(self.nprng.poisson(min(lam * dt, 1e7)))
-                # never overshoot target by >15%, allowing for sessions that depart within this window
-                k = min(k, max(0, int(tw * 1.15 + 1 + rate * dt * 1.5) - active))
+            # Departures in this window are already reflected in `active`, so the cap needs no allowance for them;
+            # the gain is capped at 1 so a window longer than tau (high speed, starved worker) cannot over-correct.
+            expected = rate * dt + (tw - active) * min(1.0, dt / tau)
+            if expected > 0:
+                k = int(self.nprng.poisson(min(expected, 1e7)))
+                k = min(k, max(0, int(tw * 1.15 + 1) - active))  # never overshoot target by more than 15%
                 for _ in range(k):
                     self.new_session(c, last + dt * self.rng.random())
             if active > tw * 1.15 + 1:
@@ -284,7 +286,7 @@ class Worker:
             if mono >= next_spawn:
                 if not paused and (self.end is None or now < self.end):
                     self.spawn(now)
-                next_spawn = mono + SPAWN_INTERVAL
+                next_spawn = mono + min(SPAWN_INTERVAL, SPAWN_SIM_INTERVAL / self.clock.speed)
             if self.cap is not None:
                 self.tokens = min(self.cap, self.tokens + (mono - last_cap) * self.cap)
                 last_cap = mono

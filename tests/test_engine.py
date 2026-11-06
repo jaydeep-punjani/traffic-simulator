@@ -95,7 +95,9 @@ def test_timestamps_follow_sim_clock(recorded):
 def test_concurrency_tracks_target(recorded):
     _sc, w, _, _ = recorded
     active = sum(len(s) for s in w.cohort_sessions.values())
-    assert 900 * 0.8 <= active <= 900 * 1.2
+    assert 900 * 0.85 <= active <= 900 * 1.15
+    # flat target: nothing should be trimmed (a double-counted departure allowance once let 600x runs reach ~1.5x)
+    assert w.trimmed <= 9
 
 
 def test_identity_flow(recorded):

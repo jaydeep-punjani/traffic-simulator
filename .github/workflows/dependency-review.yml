@@ -1,4 +1,4 @@
-name: dependency-review
+name: Dependency review
 
 on:
   pull_request:
@@ -8,6 +8,7 @@ permissions:
 
 jobs:
   review:
+    name: Review dependency changes
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

@@ -8,3 +8,9 @@ dist/
 runs/
 config/destinations.yaml
 .env
+
+# Coverage
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/

@@ -1,4 +1,4 @@
-name: ci
+name: CI
 
 on:
   push:
@@ -16,6 +16,7 @@ concurrency:
 # Actions are pinned to full commit SHAs (version in the trailing comment); Dependabot keeps them current.
 jobs:
   lint:
+    name: Lint and type check
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -33,6 +34,7 @@ jobs:
       - run: trafficsim validate
 
   test:
+    name: Test (Python ${{ matrix.python }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -55,6 +57,7 @@ jobs:
       - run: python -m pytest --cov --cov-report=term-missing --cov-report=markdown-append:"$GITHUB_STEP_SUMMARY"
 
   package:
+    name: Build and smoke-test package
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -77,6 +80,7 @@ jobs:
           /tmp/wheel-env/bin/trafficsim validate mixed_all
 
   docker:
+    name: Docker build and compose smoke test
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

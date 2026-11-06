@@ -6,7 +6,7 @@ Security fixes go into the latest release. Older releases are not patched.
 
 | Version | Supported |
 |---|---|
-| Latest `0.x` release | Yes |
+| Latest `1.x` release | Yes |
 | Anything older | No |
 
 ## Reporting a vulnerability

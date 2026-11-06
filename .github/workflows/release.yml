@@ -1,4 +1,4 @@
-name: release
+name: Release
 
 # Push a tag like v0.2.0 (matching trafficsim.__version__) to publish:
 #   - sdist + wheel attached to a GitHub Release, with build provenance attestations
@@ -19,6 +19,7 @@ env:
 
 jobs:
   dist:
+    name: Build and attest wheel and sdist
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -57,6 +58,7 @@ jobs:
           if-no-files-found: error
 
   image:
+    name: Publish container image to GHCR
     needs: dist
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -109,6 +111,7 @@ jobs:
           DIGEST: ${{ steps.push.outputs.digest }}
 
   github-release:
+    name: Create GitHub release
     needs: [dist, image]
     runs-on: ubuntu-latest
     timeout-minutes: 10

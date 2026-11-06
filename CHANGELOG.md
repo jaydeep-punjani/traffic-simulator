@@ -3,12 +3,13 @@
 All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html). While the version is `0.x`, minor releases may include
-breaking changes to scenario files, the API or exports; they are called out under **Changed**.
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html). The public interface covered by SemVer is the scenario and
+catalog YAML schema, the CLI commands and flags, the REST and WebSocket API, and the export file formats. Breaking
+changes to any of them require a new major version.
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-11-07
+## [1.0.0] - 2026-11-07
 
 First public release.
 
@@ -43,5 +44,5 @@ First public release.
   - CodeQL, dependency review and Dependabot.
   - Tag-driven releases that publish wheels, a multi-arch GHCR image and build provenance.
 
-[Unreleased]: https://github.com/jaydeep-punjani/traffic-simulator/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/jaydeep-punjani/traffic-simulator/releases/tag/v0.1.0
+[Unreleased]: https://github.com/jaydeep-punjani/traffic-simulator/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/jaydeep-punjani/traffic-simulator/releases/tag/v1.0.0
