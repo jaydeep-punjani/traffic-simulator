@@ -99,7 +99,7 @@ function renderPoint(p) {
   $("h-fail").textContent = `${fmt(sdk.failed)} / ${fmt(sdk.dropped)}`;
   $("h-lag").textContent = `${fmt(p.lag)}s`;
   $("h-total").textContent = fmt(p.total_events);
-  const warn = [];
+  const warn = [...((current && current.warnings) || [])];
   if (sdk.failed > 0) warn.push(`${fmt(sdk.failed)} events failed to upload: check the collector host and write keys.`);
   if (sdk.dropped > 0) warn.push(`${fmt(sdk.dropped)} events were dropped because an SDK queue was full: lower speed/concurrency or raise sdk.max_queue_size / sdk.threads.`);
   if (p.lag > 120) warn.push(`Workers are ${fmt(p.lag)} simulated seconds behind the clock. Event timestamps stay correct, but delivery is late: lower speed or add workers.`);
@@ -116,9 +116,11 @@ function renderFunnels(f) {
   $("funnels").innerHTML = Object.entries(f).map(([name, steps]) => `
     <div class="funnel"><h3>${escapeHtml(name)}</h3>
     ${steps.map((s) => `<div class="step"><span>${escapeHtml(s.step)}</span>
-      <span class="track"><span class="fill" style="width:${Math.min(100, s.rate * 100).toFixed(1)}%;display:block"></span></span>
+      <span class="track"><span class="fill" data-w="${Math.min(100, Number(s.rate) * 100).toFixed(1)}"></span></span>
       <span class="num">${(s.rate * 100).toFixed(1)}% · ${fmt(s.count)}</span></div>`).join("")}
     </div>`).join("") || `<p class="muted">Funnels appear once events flow.</p>`;
+  // widths are set through the CSSOM because the Content-Security-Policy forbids inline style attributes
+  for (const el of $("funnels").querySelectorAll(".fill[data-w]")) el.style.width = `${el.dataset.w}%`;
 }
 
 function escapeHtml(s) {
@@ -177,9 +179,11 @@ async function loadScenario(id) {
   for (const [v, vc] of Object.entries(r.verticals || {})) {
     if (vc && vc.enabled === false) continue;
     const mix = (vc && vc.platforms) || meta.default_platform_mix[v];
-    const cells = meta.verticals[v].map((p) => `<input type="number" min="0" step="0.05" data-v="${v}" data-p="${p}" value="${mix[p] ?? 0}" aria-label="${v} ${p} weight" title="${p}">`);
-    rows.push(`<div class="mix-row"><span>${v}</span>${cells.join("")}${meta.verticals[v].length < 3 ? "<span></span>" : ""}</div>
-      <div class="mix-row muted"><span></span>${meta.verticals[v].map((p) => `<span>${p}</span>`).join("")}</div>`);
+    if (!meta.verticals[v]) continue;
+    const e = escapeHtml;
+    const cells = meta.verticals[v].map((p) => `<input type="number" min="0" step="0.05" data-v="${e(v)}" data-p="${e(p)}" value="${e(Number(mix[p] ?? 0))}" aria-label="${e(v)} ${e(p)} weight" title="${e(p)}">`);
+    rows.push(`<div class="mix-row"><span>${e(v)}</span>${cells.join("")}${meta.verticals[v].length < 3 ? "<span></span>" : ""}</div>
+      <div class="mix-row muted"><span></span>${meta.verticals[v].map((p) => `<span>${e(p)}</span>`).join("")}</div>`);
   }
   $("mix-rows").innerHTML = rows.join("") || `<p class="muted small">No verticals enabled in this scenario.</p>`;
 }
@@ -199,9 +203,10 @@ function collectRequest() {
     o[`verticals.${inp.dataset.v}.platforms.${inp.dataset.p}`] = Number(inp.value || 0);
   }
   for (const k of Object.keys(o)) if (o[k] === null || Number.isNaN(o[k])) delete o[k];
-  const req = { overrides: o, dry_run: $("dry").checked };
-  if (yamlDirty) req.yaml = $("yaml").value; else req.scenario = $("scenario").value;
-  return req;
+  // Once the YAML has been edited it is the source of truth: the form still shows the
+  // scenario's original values, so sending them as overrides would undo the edits.
+  if (yamlDirty) return { yaml: $("yaml").value, overrides: {}, dry_run: $("dry").checked };
+  return { scenario: $("scenario").value, overrides: o, dry_run: $("dry").checked };
 }
 
 // ------------------------------------------------------------------ websocket
@@ -250,7 +255,7 @@ async function main() {
   $("dest").textContent = `collector: ${meta.destination.host}`;
   const list = await api("/api/scenarios");
   $("scenario").innerHTML = list.map((s) => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.id)}</option>`).join("");
-  $("ev-type").innerHTML = Object.entries(meta.event_types).map(([k, v]) => `<option value="${k}">${k}${v ? ` (${v})` : ""}</option>`).join("");
+  $("ev-type").innerHTML = Object.entries(meta.event_types).map(([k, v]) => `<option value="${escapeHtml(k)}">${escapeHtml(k)}${v ? ` (${escapeHtml(v)})` : ""}</option>`).join("");
   if (list.length) await loadScenario(list[0].id);
   $("scenario").onchange = () => loadScenario($("scenario").value);
   $("yaml").oninput = () => { yamlDirty = true; };

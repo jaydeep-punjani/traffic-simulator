@@ -8,14 +8,13 @@ before it should be resumed. The worker's scheduler resumes it at that time.
 from __future__ import annotations
 
 import random
+from collections.abc import Callable, Generator, Iterator
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any
 
-import yaml
-
-from .config import CATALOG_DIR, VerticalConfig
+from .config import VerticalConfig, load_yaml_mapping, resolve_catalog_path
 from .contexts import web_page
+from .identity import iso_utc
 
 EXIT = "exit"
 
@@ -59,6 +58,16 @@ class Journey:
                     raise ValueError(f"state {st.name}: unknown event key {k!r}")
             if not st.targets and not st.handler:
                 raise ValueError(f"state {st.name}: needs transitions in 'next'")
+        seen, todo = {self.start}, [self.start]
+        while todo:
+            st = self.states[todo.pop()]
+            for nxt in [*st.targets, st.params.get("fallback")]:
+                if nxt in self.states and nxt not in seen:
+                    seen.add(nxt)
+                    todo.append(nxt)
+        unreachable = sorted(set(self.states) - seen)
+        if unreachable:
+            raise ValueError(f"unreachable journey states (no transition or fallback leads to them): {unreachable}")
 
 
 @dataclass
@@ -72,11 +81,9 @@ class Catalog:
     raw: dict
 
     @classmethod
-    def load(cls, vertical: str, vc: VerticalConfig | None = None) -> "Catalog":
-        path = Path(vc.catalog) if vc and vc.catalog else CATALOG_DIR / f"{vertical}.yaml"
-        if not path.is_absolute() and not path.exists():
-            path = CATALOG_DIR.parent / path
-        raw = yaml.safe_load(path.read_text()) or {}
+    def load(cls, vertical: str, vc: VerticalConfig | None = None) -> Catalog:
+        path = resolve_catalog_path(vertical, vc.catalog if vc else None)
+        raw = load_yaml_mapping(path)
         if raw.get("vertical", vertical) != vertical:
             raise ValueError(f"catalog {path} is for vertical {raw.get('vertical')!r}, not {vertical!r}")
         events = dict(raw.get("events") or {})
@@ -90,26 +97,60 @@ class Catalog:
             params.update(vc.params)
         j = raw.get("journey") or {}
         states = {}
-        for name, s in (j.get("states") or {}).items():
-            s = s or {}
+        for name, spec in (j.get("states") or {}).items():
+            s = spec or {}
             dwell = s.get("dwell", [5, 30])
             if isinstance(dwell, (int, float)):
                 dwell = [dwell, dwell]
             view = s.get("view")
             if isinstance(view, str):
                 view = {"name": view}
-            states[name] = State(name=name, view=view, track=list(s.get("track") or []), dwell=(float(dwell[0]), float(dwell[1])),
-                                 handler=s.get("handler"), next=dict(s.get("next") or {}), params=dict(s.get("params") or {}))
-        return cls(vertical=vertical, app=dict(raw.get("app") or {}), events=events, funnels=dict(raw.get("funnels") or {}),
-                   params=params, journey=Journey(start=j.get("start", ""), states=states), raw=raw)
+            states[name] = State(
+                name=name,
+                view=view,
+                track=list(s.get("track") or []),
+                dwell=(float(dwell[0]), float(dwell[1])),
+                handler=s.get("handler"),
+                next=dict(s.get("next") or {}),
+                params=dict(s.get("params") or {}),
+            )
+        return cls(
+            vertical=vertical,
+            app=dict(raw.get("app") or {}),
+            events=events,
+            funnels=dict(raw.get("funnels") or {}),
+            params=params,
+            journey=Journey(start=j.get("start", ""), states=states),
+            raw=raw,
+        )
 
 
 class Session:
-    __slots__ = ("sid", "vertical", "platform", "region", "cohort", "user", "ctx", "user_id", "anon_id", "start",
-                 "budget_end", "now", "gen", "data", "vx", "ending", "warm", "seq", "first_session")
+    __slots__ = (
+        "anon_id",
+        "budget_end",
+        "cohort",
+        "ctx",
+        "data",
+        "ending",
+        "first_session",
+        "gen",
+        "now",
+        "platform",
+        "region",
+        "seq",
+        "sid",
+        "start",
+        "user",
+        "user_id",
+        "vertical",
+        "vx",
+        "warm",
+    )
 
-    def __init__(self, sid: int, cohort: tuple[str, str, str], user, ctx: dict, start: float, budget: float, vx: "VerticalRuntime",
-                 warm: bool = False):
+    def __init__(
+        self, sid: int, cohort: tuple[str, str, str], user, ctx: dict, start: float, budget: float, vx: VerticalRuntime, warm: bool = False
+    ):
         self.sid = sid
         self.cohort = cohort
         self.vertical, self.platform, self.region = cohort
@@ -136,7 +177,8 @@ class Session:
         return self.platform == "web"
 
 
-Handler = Callable[["Session", State], Iterator[float]]
+# A handler is a generator: yields dwell seconds, returns the next state (None = pick from `next`).
+Handler = Callable[["Session", State], Generator[float, None, "str | None"]]
 
 
 class VerticalRuntime:
@@ -152,7 +194,7 @@ class VerticalRuntime:
         self.emitter = emitter
         self.rng = rng
         self.seed = seed
-        self.effects: dict[str, dict] = {}  # platform -> {"bias":..., "featured": [...]}
+        self.effects: dict[tuple[str, str], dict] = {}  # (platform, region) -> {"bias":..., "featured": [...]}
         self.handlers: dict[str, Handler] = {"auth": self.h_auth}
         self.props: dict[str, Callable[[Session], dict]] = {}
         self.setup()
@@ -181,11 +223,11 @@ class VerticalRuntime:
 
     # ---- helpers
     def bias(self, s: Session) -> dict:
-        eff = self.effects.get(s.platform)
+        eff = self.effects.get((s.platform, s.region))
         return eff["bias"] if eff else {}
 
     def featured(self, s: Session, kind: str | None = None) -> dict | None:
-        eff = self.effects.get(s.platform)
+        eff = self.effects.get((s.platform, s.region))
         if not eff:
             return None
         for f in eff["featured"]:
@@ -201,7 +243,7 @@ class VerticalRuntime:
         if not st.targets:
             return EXIT
         b = self.bias(s)
-        weights = [w * b.get(t, 1.0) for t, w in zip(st.targets, st.weights)] if b else st.weights
+        weights = [w * b.get(t, 1.0) for t, w in zip(st.targets, st.weights, strict=True)] if b else st.weights
         return self.rng.choices(st.targets, weights)[0]
 
     def view(self, s: Session, view: dict, props: dict | None = None) -> None:
@@ -213,8 +255,13 @@ class VerticalRuntime:
                 path = path.format_map(_Missing(s.data))
             prev = s.data.get("page")
             referrer = prev["url"] if prev else self.rng.choice(self.params.get("referrers", ["https://www.google.com/", ""]))
-            page = web_page(self.app.get("web_url", "https://example.com"), path, f"{name} | {self.app.get('name', '')}",
-                            referrer, view.get("search", ""))
+            page = web_page(
+                self.app.get("web_url", "https://example.com"),
+                path,
+                f"{name} | {self.app.get('name', '')}",
+                referrer,
+                view.get("search", ""),
+            )
             s.data["page"] = page
             props.update(page)
             self.emitter.page(s, name, props, view.get("category"))
@@ -244,7 +291,8 @@ class VerticalRuntime:
                 self.track(s, "signed_in", {"method": self.rng.choice(["email", "google", "apple"])})
         else:
             s.user.registered = True
-            s.user.extra["signed_up"] = True
+            s.user.extra["signed_up_at"] = s.now
+            s.user.traits["createdAt"] = iso_utc(s.now)
             s.user_id = s.user.user_id
             self.emitter.alias(s, s.anon_id)
             self.emitter.identify(s, s.user.traits)

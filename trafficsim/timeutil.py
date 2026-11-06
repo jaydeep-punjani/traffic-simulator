@@ -48,6 +48,8 @@ def parse_start_at(value, now: float | None = None) -> float:
     now = time.time() if now is None else now
     if value is None:
         return now
+    if isinstance(value, datetime):
+        return (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).timestamp()
     if isinstance(value, (int, float)):
         return float(value)
     s = str(value).strip()

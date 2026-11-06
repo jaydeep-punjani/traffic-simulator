@@ -38,8 +38,10 @@ def test_validate(client):
 def test_run_lifecycle_over_rest_and_websocket(client, tmp_path):
     with client.websocket_connect("/ws") as ws:
         assert ws.receive_json()["type"] == "hello"
-        r = client.post("/api/runs", json={"scenario": "mixed_all", "dry_run": True,
-                                           "overrides": {"traffic.base_concurrency": 600, "workers": 2, "speed": 120}})
+        r = client.post(
+            "/api/runs",
+            json={"scenario": "mixed_all", "dry_run": True, "overrides": {"traffic.base_concurrency": 600, "workers": 2, "speed": 120}},
+        )
         assert r.status_code == 200, r.text
         rid = r.json()["run_id"]
         assert client.post("/api/runs", json={"scenario": "mixed_all", "dry_run": True}).status_code == 409

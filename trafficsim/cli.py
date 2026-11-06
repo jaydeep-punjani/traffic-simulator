@@ -15,9 +15,16 @@ from .timeutil import fmt_duration, iso_ms
 
 def _scenario_from_args(args):
     overrides = parse_set_args(args.set)
-    for flag, key in (("speed", "speed"), ("duration", "duration"), ("start_at", "start_at"), ("seed", "seed"),
-                      ("concurrency", "traffic.base_concurrency"), ("workers", "workers"), ("eps_cap", "events_per_sec_cap"),
-                      ("sample", "sample_payloads")):
+    for flag, key in (
+        ("speed", "speed"),
+        ("duration", "duration"),
+        ("start_at", "start_at"),
+        ("seed", "seed"),
+        ("concurrency", "traffic.base_concurrency"),
+        ("workers", "workers"),
+        ("eps_cap", "events_per_sec_cap"),
+        ("sample", "sample_payloads"),
+    ):
         val = getattr(args, flag, None)
         if val is not None:
             overrides[key] = val
@@ -25,11 +32,12 @@ def _scenario_from_args(args):
 
 
 def cmd_validate(args) -> int:
+    import random
+
+    from .emitter import RecordingEmitter
     from .journeys import Catalog
     from .planner import TrafficPlanner
     from .verticals import RUNTIMES
-    from .emitter import RecordingEmitter
-    import random
 
     names = [args.scenario] if args.scenario else [s["id"] for s in list_scenarios()]
     ok = True
@@ -41,8 +49,10 @@ def cmd_validate(args) -> int:
                 RUNTIMES[v](Catalog.load(v, sc.verticals[v]), RecordingEmitter(), random.Random(0))
             peak, at = planner.peak_estimate()
             dur = fmt_duration(planner.end - planner.start) if planner.end else "unbounded"
-            print(f"OK   {name:<24} verticals={','.join(planner.verticals):<24} cohorts={len(planner.cohorts):<3} "
-                  f"duration={dur:<10} speed={sc.speed:g}x  peak≈{peak:,.0f} sessions at +{fmt_duration(at - planner.start)}")
+            print(
+                f"OK   {name:<24} verticals={','.join(planner.verticals):<24} cohorts={len(planner.cohorts):<3} "
+                f"duration={dur:<10} speed={sc.speed:g}x  peak≈{peak:,.0f} sessions at +{fmt_duration(at - planner.start)}"
+            )
         except Exception as e:  # report every scenario, not just the first failure
             ok = False
             print(f"FAIL {name}: {e}")
@@ -58,9 +68,11 @@ def cmd_list(args) -> int:
 def _fmt_point(p: dict) -> str:
     sdk = p.get("sdk", {})
     ov = ",".join(f"{o['name']}({o['intensity']:.2f})" for o in p.get("overlays", []))
-    return (f"[{p['elapsed']:7.1f}s] sim {p['sim_time_iso'][:19]}  active {p['active']:>7,}/{p['target']:>9,.0f}  "
-            f"eps {p['eps']:>9,.0f}  sent/s {p['sdk_sent_rate']:>9,.0f}  queue {sdk.get('queue_depth', 0):>6,}  "
-            f"failed {sdk.get('failed', 0):,} dropped {sdk.get('dropped', 0):,}  lag {p['lag']:.0f}s  {ov}")
+    return (
+        f"[{p['elapsed']:7.1f}s] sim {p['sim_time_iso'][:19]}  active {p['active']:>7,}/{p['target']:>9,.0f}  "
+        f"eps {p['eps']:>9,.0f}  sent/s {p['sdk_sent_rate']:>9,.0f}  queue {sdk.get('queue_depth', 0):>6,}  "
+        f"failed {sdk.get('failed', 0):,} dropped {sdk.get('dropped', 0):,}  lag {p['lag']:.0f}s  {ov}"
+    )
 
 
 def cmd_run(args) -> int:
@@ -69,8 +81,10 @@ def cmd_run(args) -> int:
     sc = _scenario_from_args(args)
     dest = load_destinations(args.destinations, args.host)
     run = Run(sc, dest, send=not args.dry_run, runs_dir=args.out, workers=args.workers)
-    print(f"run {run.id}: scenario={sc.name} workers={run.n_workers} speed={sc.speed:g}x start={iso_ms(run.start_sim)} "
-          f"duration={sc.duration} planned peak≈{run.peak:,.0f} sessions  -> {dest.host if not args.dry_run else 'DRY RUN'}")
+    print(
+        f"run {run.id}: scenario={sc.name} workers={run.n_workers} speed={sc.speed:g}x start={iso_ms(run.start_sim)} "
+        f"duration={sc.duration} planned peak≈{run.peak:,.0f} sessions  -> {dest.host if not args.dry_run else 'DRY RUN'}"
+    )
     every = max(1, int(args.print_every))
     count = [0]
 
@@ -82,29 +96,59 @@ def cmd_run(args) -> int:
             print(_fmt_point(p), flush=True)
 
     run.listeners.append(show)
-    run.start()
+    for w in run.warnings:
+        print(f"warning: {w}", file=sys.stderr)
+    signals = [0]
 
     def on_signal(signum, frame):
-        print("\nstopping (draining SDK queues)...", flush=True)
+        signals[0] += 1
+        if signals[0] > 1:
+            print("\nsecond signal: exiting without draining", file=sys.stderr, flush=True)
+            raise KeyboardInterrupt
+        print("\nstopping (draining SDK queues; press Ctrl-C again to abort)...", flush=True)
         run.stop()
 
+    # Installed before workers start so an early Ctrl-C still drains instead of orphaning them.
     signal.signal(signal.SIGINT, on_signal)
     signal.signal(signal.SIGTERM, on_signal)
-    deadline = time.time() + args.max_wall if args.max_wall else None
+    run.start()
+    deadline = time.monotonic() + args.max_wall if args.max_wall else None
     while not run.wait(0.5):
-        if deadline and time.time() > deadline and run.state not in ("stopping", "finishing", "finished"):
+        if deadline and time.monotonic() > deadline and run.state not in ("stopping", "finishing", "finished"):
             print(f"--max-wall {args.max_wall}s reached, stopping...", flush=True)
             run.stop()
     s = run.summary()
-    print(json.dumps({k: s[k] for k in ("run_id", "total_events", "avg_eps", "peak_eps", "peak_active_sessions",
-                                         "sessions_started", "max_lag_sim_seconds", "sdk", "sim_elapsed_s", "wall_elapsed_s",
-                                         "errors")}, indent=2))
+    print(
+        json.dumps(
+            {
+                k: s[k]
+                for k in (
+                    "run_id",
+                    "total_events",
+                    "avg_eps",
+                    "peak_eps",
+                    "peak_active_sessions",
+                    "sessions_started",
+                    "sessions_trimmed",
+                    "journey_errors",
+                    "max_lag_sim_seconds",
+                    "sdk",
+                    "sim_elapsed_s",
+                    "wall_elapsed_s",
+                    "errors",
+                    "warnings",
+                )
+            },
+            indent=2,
+        )
+    )
     print(f"exports: {run.exports['dir'] if run.exports else '-'}")
     return 1 if s["errors"] else 0
 
 
 def cmd_serve(args) -> int:
     import uvicorn
+
     from .api.app import create_app
 
     app = create_app(destinations_path=args.destinations, host_override=args.host, runs_dir=args.out)
@@ -115,6 +159,7 @@ def cmd_serve(args) -> int:
 
 def cmd_mock(args) -> int:
     from .mock_collector import serve
+
     serve(args.bind, args.port, args.sample_every)
     return 0
 
@@ -169,11 +214,35 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+_NEGATIVE_VALUE_FLAGS = ("--start-at",)
+
+
+def _join_negative_values(argv: list[str]) -> list[str]:
+    """Rewrite `--start-at -24h` as `--start-at=-24h`.
+
+    argparse before Python 3.12 reads a value starting with '-' as another option.
+    """
+    out: list[str] = []
+    it = iter(argv)
+    for tok in it:
+        if tok in _NEGATIVE_VALUE_FLAGS:
+            nxt = next(it, None)
+            if nxt is not None and nxt.startswith("-") and nxt[1:2].isdigit():
+                out.append(f"{tok}={nxt}")
+                continue
+            out.append(tok)
+            if nxt is not None:
+                out.append(nxt)
+            continue
+        out.append(tok)
+    return out
+
+
 def main(argv=None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     logging.getLogger("segment").setLevel(logging.CRITICAL)
     logging.getLogger("backoff").setLevel(logging.CRITICAL)
-    args = build_parser().parse_args(argv)
+    args = build_parser().parse_args(_join_negative_values(list(sys.argv[1:] if argv is None else argv)))
     return args.fn(args)
 
 

@@ -5,10 +5,20 @@ from trafficsim.patterns import build_pattern, envelope
 from trafficsim.timeutil import fmt_duration, iso_ms, parse_duration, parse_start_at
 
 
-@pytest.mark.parametrize("text,seconds", [
-    ("90s", 90), ("15m", 900), ("2h", 7200), ("1d12h", 129600), ("+2h", 7200), ("-24h", -86400),
-    ("1h30m", 5400), (45, 45), ("3600", 3600),
-])
+@pytest.mark.parametrize(
+    "text,seconds",
+    [
+        ("90s", 90),
+        ("15m", 900),
+        ("2h", 7200),
+        ("1d12h", 129600),
+        ("+2h", 7200),
+        ("-24h", -86400),
+        ("1h30m", 5400),
+        (45, 45),
+        ("3600", 3600),
+    ],
+)
 def test_parse_duration(text, seconds):
     assert parse_duration(text) == seconds
 
@@ -77,7 +87,7 @@ def test_patterns():
     spike = build_pattern({"type": "spike", "at": "+1h", "rise": "10m", "hold": "10m", "decay": "10m", "magnitude": 4}, start)
     assert spike.value(0) == 1 and spike.value(3600 + 900) == pytest.approx(4)
     sine = build_pattern({"type": "sine", "period": "1h", "amplitude": 0.2}, start)
-    assert 0.8 - 1e-9 <= min(sine.value(t * 60) for t in range(60)) and max(sine.value(t * 60) for t in range(60)) <= 1.2 + 1e-9
+    assert min(sine.value(t * 60) for t in range(60)) >= 0.8 - 1e-9 and max(sine.value(t * 60) for t in range(60)) <= 1.2 + 1e-9
     custom = build_pattern({"type": "custom", "points": [["0s", 1], ["1h", 3]]}, start)
     assert custom.value(1800) == pytest.approx(2)
     di = build_pattern({"type": "diurnal", "profile": "streaming", "floor": 0.1}, start)

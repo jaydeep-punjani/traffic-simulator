@@ -7,33 +7,114 @@ absolute ISO timestamps.
 
 from __future__ import annotations
 
+import itertools
 import math
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from .timeutil import parse_duration
 
 DIURNAL_PROFILES: dict[str, list[float]] = {
     # local hour 0..23, peak normalised to 1.0
-    "streaming": [0.42, 0.28, 0.18, 0.12, 0.09, 0.09, 0.13, 0.20, 0.26, 0.29, 0.31, 0.34,
-                  0.39, 0.41, 0.41, 0.44, 0.51, 0.61, 0.74, 0.87, 0.97, 1.00, 0.90, 0.65],
-    "ecom": [0.25, 0.15, 0.10, 0.07, 0.06, 0.08, 0.15, 0.30, 0.48, 0.60, 0.68, 0.78,
-             0.88, 0.85, 0.75, 0.72, 0.74, 0.78, 0.85, 0.95, 1.00, 0.92, 0.70, 0.45],
-    "gaming": [0.62, 0.45, 0.30, 0.20, 0.14, 0.11, 0.12, 0.16, 0.22, 0.27, 0.31, 0.36,
-               0.42, 0.46, 0.50, 0.57, 0.66, 0.76, 0.86, 0.94, 0.99, 1.00, 0.95, 0.80],
+    "streaming": [
+        0.42,
+        0.28,
+        0.18,
+        0.12,
+        0.09,
+        0.09,
+        0.13,
+        0.20,
+        0.26,
+        0.29,
+        0.31,
+        0.34,
+        0.39,
+        0.41,
+        0.41,
+        0.44,
+        0.51,
+        0.61,
+        0.74,
+        0.87,
+        0.97,
+        1.00,
+        0.90,
+        0.65,
+    ],
+    "ecom": [
+        0.25,
+        0.15,
+        0.10,
+        0.07,
+        0.06,
+        0.08,
+        0.15,
+        0.30,
+        0.48,
+        0.60,
+        0.68,
+        0.78,
+        0.88,
+        0.85,
+        0.75,
+        0.72,
+        0.74,
+        0.78,
+        0.85,
+        0.95,
+        1.00,
+        0.92,
+        0.70,
+        0.45,
+    ],
+    "gaming": [
+        0.62,
+        0.45,
+        0.30,
+        0.20,
+        0.14,
+        0.11,
+        0.12,
+        0.16,
+        0.22,
+        0.27,
+        0.31,
+        0.36,
+        0.42,
+        0.46,
+        0.50,
+        0.57,
+        0.66,
+        0.76,
+        0.86,
+        0.94,
+        0.99,
+        1.00,
+        0.95,
+        0.80,
+    ],
 }
 DIURNAL_PROFILES["default"] = DIURNAL_PROFILES["streaming"]
 WEEKLY_DEFAULT = [0.90, 0.88, 0.90, 0.95, 1.05, 1.20, 1.15]  # Mon..Sun
 
 
 def resolve_time(value: Any, start: float) -> float:
-    """Offset ('+2h', 3600) from scenario start, or absolute ISO timestamp."""
+    """Offset from scenario start ('+2h', 3600) or an absolute ISO timestamp.
+
+    'start' / 'now' / '' all mean the scenario start (for live-triggered
+    overlays the API passes the current sim time as the offset instead).
+    """
+    if isinstance(value, datetime):
+        return (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).timestamp()
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day, tzinfo=timezone.utc).timestamp()
     if isinstance(value, (int, float)):
         return start + float(value)
     s = str(value).strip()
     if s.lower() in ("start", "now", ""):
         return start
-    if s[0] in "+-" or s[0].isdigit() and not ("T" in s or "-" in s[1:]):
+    if s[0] in "+-" or (s[0].isdigit() and not ("T" in s or "-" in s[1:])):
         return start + parse_duration(s)
     dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
     if dt.tzinfo is None:
@@ -65,7 +146,7 @@ def envelope(t: float, at: float, rise: float, hold: float, decay: float) -> flo
 def _interp(points: list[tuple[float, float]], t: float) -> float:
     if t <= points[0][0]:
         return points[0][1]
-    for (t0, v0), (t1, v1) in zip(points, points[1:]):
+    for (t0, v0), (t1, v1) in itertools.pairwise(points):
         if t <= t1:
             return v0 if t1 == t0 else v0 + (v1 - v0) * (t - t0) / (t1 - t0)
     return points[-1][1]
@@ -82,9 +163,11 @@ class Pattern:
         self.regions = set(spec.get("regions") or [])
 
     def applies(self, vertical: str, platform: str, region: str) -> bool:
-        return ((not self.verticals or vertical in self.verticals)
-                and (not self.platforms or platform in self.platforms)
-                and (not self.regions or region in self.regions))
+        return (
+            (not self.verticals or vertical in self.verticals)
+            and (not self.platforms or platform in self.platforms)
+            and (not self.regions or region in self.regions)
+        )
 
     def value(self, t: float, tz_hours: float = 0.0, vertical: str = "") -> float:
         raise NotImplementedError
@@ -113,8 +196,8 @@ class Diurnal(Pattern):
     def value(self, t, tz_hours=0.0, vertical=""):
         curve = self.curve or DIURNAL_PROFILES.get(self.profile or vertical, DIURNAL_PROFILES["default"])
         h = ((t / 3600.0) + tz_hours) % 24.0
-        i = int(h)
-        frac = h - i
+        i = int(h) % 24  # float modulo can return exactly 24.0 for tiny negative inputs
+        frac = h - int(h)
         v = curve[i] + (curve[(i + 1) % 24] - curve[i]) * frac
         v = 1.0 - self.strength * (1.0 - v)
         return max(self.floor, v)

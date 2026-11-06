@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 
 from .clock import SimClock
-from .config import Destinations, Scenario
+from .config import DEFAULT_SESSION_MINUTES, Destinations, Scenario
 from .contexts import build_context
 from .emitter import Emitter
 from .identity import UserPool
@@ -38,18 +38,28 @@ from .verticals import RUNTIMES
 
 log = logging.getLogger("trafficsim.worker")
 
-SPAWN_INTERVAL = 0.25      # wall seconds between arrival/effects updates
-STATS_INTERVAL = 1.0       # wall seconds between stats reports
-SLICE = 0.05               # wall seconds of session processing between housekeeping
-WARM_SPREAD = 60.0         # sim seconds over which warm-start sessions take their first step
-DEPARTURE_TAU = 300.0      # sim seconds, EWMA time constant for natural departure rate
-BACKPRESSURE_FILL = 0.8    # pause processing while any SDK queue is this full
+SPAWN_INTERVAL = 0.25  # wall seconds between arrival/effects updates
+STATS_INTERVAL = 1.0  # wall seconds between stats reports
+SLICE = 0.05  # wall seconds of session processing between housekeeping
+WARM_SPREAD = 60.0  # sim seconds over which warm-start sessions take their first step
+DEPARTURE_TAU = 300.0  # sim seconds, EWMA time constant for natural departure rate
+BACKPRESSURE_FILL = 0.8  # pause processing while any SDK queue is this full
 
 
 class Worker:
-    def __init__(self, wid: int, n_workers: int, scenario: Scenario, start_sim: float, clock_state: dict,
-                 destinations: Destinations, send: bool = True, out_dir: str | None = None, overlays: list | None = None,
-                 emitter=None):
+    def __init__(
+        self,
+        wid: int,
+        n_workers: int,
+        scenario: Scenario,
+        start_sim: float,
+        clock_state: dict,
+        destinations: Destinations,
+        send: bool = True,
+        out_dir: str | None = None,
+        overlays: list | None = None,
+        emitter=None,
+    ):
         self.wid = wid
         self.n = n_workers
         self.scenario = scenario
@@ -65,9 +75,16 @@ class Worker:
         if out_dir and scenario.sample_payloads > 0:
             Path(out_dir).mkdir(parents=True, exist_ok=True)
             sample_path = str(Path(out_dir) / f"payloads-w{wid}.jsonl")
-        self.emitter = emitter or Emitter(destinations, scenario.sdk, self.planner.vp_pairs, self.stats, send=send,
-                                          sample_rate=scenario.sample_payloads, sample_path=sample_path,
-                                          rng=random.Random(seed + 7))
+        self.emitter = emitter or Emitter(
+            destinations,
+            scenario.sdk,
+            self.planner.vp_pairs,
+            self.stats,
+            send=send,
+            sample_rate=scenario.sample_payloads,
+            sample_path=sample_path,
+            rng=random.Random(seed + 7),
+        )
         if emitter is not None:
             self.emitter.stats = self.stats
 
@@ -77,15 +94,17 @@ class Worker:
             vc = scenario.verticals[v]
             self.runtimes[v] = RUNTIMES[v](Catalog.load(v, vc), self.emitter, self.rng, scenario.seed)
             sl = vc.session
-            mean = sl.mean_minutes * 60.0
-            mu = math.log(mean) - sl.sigma ** 2 / 2
+            mean = (sl.mean_minutes or DEFAULT_SESSION_MINUTES[v]) * 60.0
+            mu = math.log(mean) - sl.sigma**2 / 2
             self.lengths[v] = (mu, sl.sigma, sl.min_minutes * 60.0, sl.max_minutes * 60.0)
 
         peaks = self.planner.cohort_peaks()
-        self.pools = {c: UserPool(scenario.seed, c, peaks[c] * scenario.verticals[c[0]].user_pool_factor + 50, wid, n_workers)
-                      for c in self.planner.cohorts}
+        self.pools = {
+            c: UserPool(scenario.seed, c, int(peaks[c] * scenario.verticals[c[0]].user_pool_factor) + 50, wid, n_workers)
+            for c in self.planner.cohorts
+        }
         self.cohort_sessions: dict[tuple, dict[int, Session]] = {c: {} for c in self.planner.cohorts}
-        self.departures: dict[tuple, int] = {c: 0 for c in self.planner.cohorts}
+        self.departures: dict[tuple, int] = dict.fromkeys(self.planner.cohorts, 0)
         self.dep_rate: dict[tuple, float] = {}
         self.sched = Scheduler()
         self.next_sid = wid
@@ -98,19 +117,22 @@ class Worker:
         self.trimmed = 0
 
     # ------------------------------------------------------------------ sessions
-    def _budget(self, v: str) -> float:
+    def _budget(self, v: str, warm: bool = False) -> float:
         mu, sigma, lo, hi = self.lengths[v]
-        return min(hi, max(lo, float(self.nprng.lognormal(mu, sigma))))
+        if not warm:
+            return min(hi, max(lo, float(self.nprng.lognormal(mu, sigma))))
+        # A session observed in progress is length-biased (inspection paradox): for
+        # lognormal(mu, s) lengths that is lognormal(mu + s^2, s); its remaining
+        # lifetime is uniform over that length.
+        total = min(hi, max(lo, float(self.nprng.lognormal(mu + sigma**2, sigma))))
+        return max(30.0, total * self.rng.random())
 
     def new_session(self, cohort: tuple, start: float, warm: bool = False) -> Session:
         v, p, _ = cohort
         vx = self.runtimes[v]
         user = self.pools[cohort].acquire(self.rng)
         ctx = build_context(p, user, vx.app, user.seed)
-        budget = self._budget(v)
-        if warm:
-            budget *= self.rng.random()  # residual lifetime of an in-progress session
-            budget = max(budget, 30.0)
+        budget = self._budget(v, warm)
         sid = self.next_sid
         self.next_sid += self.n
         s = Session(sid, cohort, user, ctx, start, budget, vx, warm=warm)
@@ -136,7 +158,9 @@ class Worker:
             self.end_session(s)
             return
         except Exception:  # a journey bug must not take the worker down
-            log.error("session %s crashed:\n%s", s.sid, traceback.format_exc())
+            tb = traceback.format_exc()
+            log.error("session %s crashed:\n%s", s.sid, tb)
+            self.stats.journey_error(tb)
             self.end_session(s)
             return
         self.sched.push(t + max(0.05, float(wait)), s)
@@ -144,9 +168,14 @@ class Worker:
     # ------------------------------------------------------------------ control
     def mean_length(self, v: str) -> float:
         mu, sigma, lo, hi = self.lengths[v]
-        return min(hi, max(lo, math.exp(mu + sigma ** 2 / 2)))
+        return min(hi, max(lo, math.exp(mu + sigma**2 / 2)))
+
+    def apply_effects(self, now: float) -> None:
+        for (v, p, r), eff in self.planner.effects(now).items():
+            self.runtimes[v].effects[(p, r)] = eff
 
     def warm_start(self, now: float) -> None:
+        self.apply_effects(now)
         for c, tgt in self.planner.targets(now).items():
             k = int(tgt / self.n + self.rng.random())
             for _ in range(k):
@@ -195,8 +224,7 @@ class Worker:
                     self.sched.push(now, s)  # wakes now, sees `ending`, emits exit events
                     self.trimmed += 1
                     excess -= 1
-        for (v, p), eff in self.planner.effects(now).items():
-            self.runtimes[v].effects[p] = eff
+        self.apply_effects(now)
 
     def handle(self, msg) -> None:
         kind, payload = msg
@@ -210,10 +238,20 @@ class Worker:
     def snapshot(self, now: float) -> dict:
         snap = self.stats.snapshot()
         active: dict[tuple, int] = {}
-        for (v, p, _r), sessions in self.cohort_sessions.items():
-            active[(v, p)] = active.get((v, p), 0) + len(sessions)
-        snap.update(active=active, sdk=self.emitter.sdk_snapshot(), lag=self.lag, sim_now=now, wall=time.time(),
-                    heap=len(self.sched), queue_fill=self.emitter.max_queue_fill(), done=self.done, trimmed=self.trimmed)
+        if not self.done:
+            for (v, p, _r), sessions in self.cohort_sessions.items():
+                active[(v, p)] = active.get((v, p), 0) + len(sessions)
+        snap.update(
+            active=active,
+            sdk=self.emitter.sdk_snapshot(),
+            lag=self.lag,
+            sim_now=now,
+            wall=time.time(),
+            heap=len(self.sched),
+            queue_fill=self.emitter.max_queue_fill(),
+            done=self.done,
+            trimmed=self.trimmed,
+        )
         return snap
 
     # ------------------------------------------------------------------ main loop
@@ -222,6 +260,7 @@ class Worker:
         if self.scenario.warm_start:
             self.warm_start(now)
         else:
+            self.apply_effects(now)
             self.last_spawn_sim = now
         wall0 = time.monotonic()
         next_spawn = next_stats = time.monotonic()
@@ -241,8 +280,9 @@ class Worker:
             now = self.clock.now()
             if self.end is not None and now >= self.end:
                 now = self.end
-            if mono >= next_spawn and not self.clock.paused:
-                if self.end is None or now < self.end:
+            paused = self.clock.paused
+            if mono >= next_spawn:
+                if not paused and (self.end is None or now < self.end):
                     self.spawn(now)
                 next_spawn = mono + SPAWN_INTERVAL
             if self.cap is not None:
@@ -281,7 +321,9 @@ class Worker:
                 next_stats = mono + STATS_INTERVAL
             if self.end is not None and now >= self.end and (nxt is None or nxt > self.end):
                 break
-            if throttled:
+            if paused:
+                time.sleep(0.05)  # sim time is frozen: nothing becomes due until resume
+            elif throttled:
                 time.sleep(0.01)
             elif nxt is None or nxt > now:
                 wait = self.clock.wall_until(nxt) if nxt is not None else SPAWN_INTERVAL
@@ -289,8 +331,20 @@ class Worker:
         self.done = True
 
 
-def worker_main(wid: int, n_workers: int, scenario_data: dict, start_sim: float, clock_state: dict, dest_data: dict,
-                send: bool, out_dir: str | None, overlays: list, ctrl_q, stats_q, drain_timeout: float = 60.0) -> None:
+def worker_main(
+    wid: int,
+    n_workers: int,
+    scenario_data: dict,
+    start_sim: float,
+    clock_state: dict,
+    dest_data: dict,
+    send: bool,
+    out_dir: str | None,
+    overlays: list,
+    ctrl_q,
+    stats_q,
+    drain_timeout: float = 60.0,
+) -> None:
     logging.basicConfig(level=logging.WARNING, format=f"[w{wid}] %(levelname)s %(name)s: %(message)s")
     logging.getLogger("segment").setLevel(logging.CRITICAL)  # failures are counted and surfaced via stats
     logging.getLogger("backoff").setLevel(logging.CRITICAL)

@@ -10,9 +10,14 @@ from trafficsim.mock_collector import Collector, make_app
 
 
 def scenario(**kw) -> Scenario:
-    data = {"name": "t", "duration": "2h", "speed": 600, "seed": 3,
-            "traffic": {"base_concurrency": 300, "regions": {"us": 1.0}},
-            "verticals": {"streaming": {}, "ecom": {}, "gaming": {}}}
+    data = {
+        "name": "t",
+        "duration": "2h",
+        "speed": 600,
+        "seed": 3,
+        "traffic": {"base_concurrency": 300, "regions": {"us": 1.0}},
+        "verticals": {"streaming": {}, "ecom": {}, "gaming": {}},
+    }
     for k, v in kw.items():
         data[k] = v
     return Scenario.model_validate(data)

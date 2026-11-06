@@ -29,8 +29,9 @@ class TrafficPlanner:
         self.base: dict[Cohort, float] = {}
         for v in verts:
             vc = scenario.verticals[v]
-            ptotal = sum(vc.platforms.values())
-            for p, pw in vc.platforms.items():
+            mix = vc.platforms or {}  # filled with the vertical default by Scenario validation
+            ptotal = sum(mix.values())
+            for p, pw in mix.items():
                 for r, rw in tr.regions.items():
                     if rw <= 0:
                         continue
@@ -62,32 +63,31 @@ class TrafficPlanner:
     def total_target(self, t: float) -> float:
         return sum(self.targets(t).values())
 
-    def effects(self, t: float) -> dict[tuple[str, str], dict]:
-        return {(v, p): effects_for(self.overlays, v, p, t) for v, p in self.vp_pairs}
+    def effects(self, t: float) -> dict[Cohort, dict]:
+        """Active overlay effects per cohort, so region-scoped overlays stay in their region."""
+        return {(v, p, r): effects_for(self.overlays, v, p, t, r) for v, p, r in self.cohorts}
+
+    def _sample_times(self, samples: int) -> list[float]:
+        horizon = (self.end - self.start) if self.end else 7 * 86400
+        end = self.start + horizon
+        ts = [self.start + horizon * i / samples for i in range(samples + 1)]
+        for ov in self.overlays:  # sample each overlay's plateau, clamped to the run window
+            for t in (ov.at + ov.rise, ov.at + ov.rise + ov.hold / 2, ov.at + ov.rise + ov.hold):
+                ts.append(min(max(t, self.start), end))
+        return ts
 
     def peak_estimate(self, samples: int = 400) -> tuple[float, float]:
         """(peak total target, sim time of peak) over the scenario duration (or 7 days)."""
-        horizon = (self.end - self.start) if self.end else 7 * 86400
         best, best_t = 0.0, self.start
-        for i in range(samples + 1):
-            t = self.start + horizon * i / samples
-            v = self.total_target(t)
-            if v > best:
-                best, best_t = v, t
-        for ov in self.overlays:  # make sure overlay plateaus are sampled
-            t = ov.at + ov.rise + ov.hold / 2
+        for t in self._sample_times(samples):
             v = self.total_target(t)
             if v > best:
                 best, best_t = v, t
         return best, best_t
 
     def cohort_peaks(self) -> dict[Cohort, float]:
-        horizon = (self.end - self.start) if self.end else 7 * 86400
-        peaks = {c: 0.0 for c in self.cohorts}
-        ts = [self.start + horizon * i / 200 for i in range(201)]
-        ts += [ov.at + ov.rise + ov.hold / 2 for ov in self.overlays]
-        for t in ts:
+        peaks = dict.fromkeys(self.cohorts, 0.0)
+        for t in self._sample_times(200):
             for c, v in self.targets(t).items():
-                if v > peaks[c]:
-                    peaks[c] = v
+                peaks[c] = max(peaks[c], v)
         return peaks

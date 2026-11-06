@@ -1,12 +1,13 @@
 """Event emission through the open-source Segment SDK (segment-analytics-python).
 
 One `SimClient` per source (vertical x platform) per worker. `SimClient`
-subclasses the SDK `Client` and only replaces `_enqueue` so that:
+subclasses the SDK `Client`, replaces `_enqueue` and runs `SimConsumer` threads so that:
   * the platform-specific `context.library` we set (analytics-ios, analytics.js ...)
     is preserved instead of being overwritten with analytics-python;
   * the per-message `clean()` + extra `json.dumps` size check are skipped
     (our payloads are already JSON-safe) which roughly doubles throughput;
-  * queue-full drops are counted instead of silently logged.
+  * queue-full drops, oversize (>32 KB) drops, upload failures and anything left
+    undelivered after the drain timeout are all counted instead of silently logged.
 Batching, consumer threads, retries/backoff, gzip, auth and `sentAt` all remain
 the SDK's own code paths (`Consumer` + `request.post` to `<host>/v1/batch`).
 """
@@ -24,7 +25,8 @@ from uuid import uuid4
 from requests.adapters import HTTPAdapter
 from segment.analytics import request as _seg_request
 from segment.analytics.client import Client
-from segment.analytics.consumer import Consumer
+from segment.analytics.consumer import BATCH_SIZE_LIMIT, MAX_MSG_SIZE, Consumer
+from segment.analytics.request import DatetimeSerializer
 
 from .config import Destinations, SdkConfig
 
@@ -38,13 +40,64 @@ for _scheme in ("http://", "https://"):
 
 
 class _Counter:
-    __slots__ = ("sent", "batches", "failed", "lock")
+    __slots__ = ("batches", "failed", "lock", "oversize", "sent")
 
     def __init__(self):
         self.sent = 0
         self.batches = 0
         self.failed = 0
+        self.oversize = 0
         self.lock = threading.Lock()
+
+
+class SimConsumer(Consumer):
+    """SDK consumer thread with delivery accounting.
+
+    `request` counts events only after the SDK's own retrying upload succeeds.
+    `next` mirrors the SDK 2.4 batching loop but acknowledges (`task_done`)
+    and counts messages it drops for exceeding 32 KB. Upstream skips the
+    acknowledgement, which makes `queue.join()`-style draining hang.
+    """
+
+    def __init__(self, counter: _Counter, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.counter = counter
+
+    def request(self, batch):
+        res = super().request(batch)
+        with self.counter.lock:
+            self.counter.sent += len(batch)
+            self.counter.batches += 1
+        return res
+
+    def next(self):
+        q = self.queue
+        items: list = []
+        start = time.monotonic()
+        total = 0
+        while len(items) < self.upload_size:
+            elapsed = time.monotonic() - start
+            if elapsed >= self.upload_interval:
+                break
+            try:
+                item = q.get(block=True, timeout=self.upload_interval - elapsed)
+            except queue.Empty:
+                break
+            try:
+                size = len(json.dumps(item, cls=DatetimeSerializer).encode())
+            except Exception:  # unserialisable message: count it, never lose the ack
+                log.exception("dropping unserialisable message")
+                size = MAX_MSG_SIZE + 1
+            if size > MAX_MSG_SIZE:
+                q.task_done()
+                with self.counter.lock:
+                    self.counter.oversize += 1
+                continue
+            items.append(item)
+            total += size
+            if total >= BATCH_SIZE_LIMIT:
+                break
+        return items
 
 
 class SimClient(Client):
@@ -52,33 +105,44 @@ class SimClient(Client):
         self.counter = _Counter()
         self.dropped = 0
         self.enqueued = 0
-        super().__init__(write_key=write_key, host=host, max_queue_size=sdk.max_queue_size, send=send,
-                         on_error=self._on_error, gzip=sdk.gzip, max_retries=sdk.max_retries, timeout=sdk.timeout,
-                         thread=1, upload_size=sdk.upload_size, upload_interval=sdk.upload_interval)
-        if self.consumers is None:
-            self.consumers = []
-        # The SDK resets its consumer list inside its thread loop, so extra threads are added here.
-        if send:
-            for _ in range(sdk.threads - 1):
-                c = Consumer(self.queue, write_key, host=host, on_error=self._on_error, upload_size=sdk.upload_size,
-                             upload_interval=sdk.upload_interval, gzip=sdk.gzip, retries=sdk.max_retries, timeout=sdk.timeout)
-                self.consumers.append(c)
-                c.start()
+        self.undelivered = 0
+        # Build the SDK client with send=False so it neither starts its own consumer
+        # nor registers an atexit join; our counted consumers replace it below.
+        super().__init__(
+            write_key=write_key,
+            host=host,
+            max_queue_size=sdk.max_queue_size,
+            send=False,
+            on_error=self._on_error,
+            gzip=sdk.gzip,
+            max_retries=sdk.max_retries,
+            timeout=sdk.timeout,
+            thread=1,
+            upload_size=sdk.upload_size,
+            upload_interval=sdk.upload_interval,
+        )
+        self.send = send
+        self.consumers = (
+            [
+                SimConsumer(
+                    self.counter,
+                    self.queue,
+                    write_key,
+                    host=host,
+                    on_error=self._on_error,
+                    upload_size=sdk.upload_size,
+                    upload_interval=sdk.upload_interval,
+                    gzip=sdk.gzip,
+                    retries=sdk.max_retries,
+                    timeout=sdk.timeout,
+                )
+                for _ in range(max(1, sdk.threads))
+            ]
+            if send
+            else []
+        )
         for c in self.consumers:
-            self._wrap(c)
-
-    def _wrap(self, consumer: Consumer) -> None:
-        orig = consumer.request
-        counter = self.counter
-
-        def counted(batch):
-            res = orig(batch)
-            with counter.lock:
-                counter.sent += len(batch)
-                counter.batches += 1
-            return res
-
-        consumer.request = counted
+            c.start()
 
     def _on_error(self, exc, batch):
         with self.counter.lock:
@@ -112,7 +176,10 @@ class SimClient(Client):
         return self.queue.qsize()
 
     def drain(self, timeout: float) -> bool:
-        """Wait for queued events to be uploaded (bounded), then stop consumers."""
+        """Wait (bounded) for every queued event to be uploaded or failed, then stop consumers.
+
+        Anything still unacknowledged at the deadline is reported as `undelivered`.
+        """
         deadline = time.monotonic() + timeout
         ok = True
         if self.send:
@@ -123,21 +190,34 @@ class SimClient(Client):
                 time.sleep(0.05)
         for c in self.consumers:
             c.pause()
+        for c in self.consumers:
+            c.join(timeout=max(0.1, min(2.0, deadline - time.monotonic())))
+        self.undelivered = self.queue.unfinished_tasks if self.send else 0
         return ok
 
 
 class Emitter:
     """Routes session events to the right SimClient and records stats."""
 
-    def __init__(self, destinations: Destinations, sdk: SdkConfig, pairs, stats, send: bool = True,
-                 sample_rate: float = 0.0, sample_path: str | None = None, rng=None):
+    def __init__(
+        self,
+        destinations: Destinations,
+        sdk: SdkConfig,
+        pairs,
+        stats,
+        send: bool = True,
+        sample_rate: float = 0.0,
+        sample_path: str | None = None,
+        rng=None,
+    ):
         self.stats = stats
         self.clients: dict[tuple[str, str], SimClient] = {}
         for v, p in pairs:
             self.clients[(v, p)] = SimClient(destinations.write_key(v, p), destinations.host, sdk, send=send)
         self.sample_rate = sample_rate
         self.rng = rng
-        self._sample_fh = open(sample_path, "a") if sample_rate > 0 and sample_path else None
+        # kept open for the run (closed in close()); a context manager does not fit
+        self._sample_fh = open(sample_path, "a", encoding="utf-8") if sample_rate > 0 and sample_path else None  # noqa: SIM115
 
     @staticmethod
     def _ts(s) -> datetime:
@@ -160,26 +240,32 @@ class Emitter:
 
     def track(self, s, key: str, name: str, props: dict) -> None:
         c = self.clients[(s.vertical, s.platform)]
-        res = c.track(user_id=s.user_id, event=name, properties=props, context=self._ctx(s), timestamp=self._ts(s),
-                      anonymous_id=s.anon_id)
+        res = c.track(user_id=s.user_id, event=name, properties=props, context=self._ctx(s), timestamp=self._ts(s), anonymous_id=s.anon_id)
         self._record(s, "track", name, key, res)
 
     def page(self, s, name: str, props: dict, category: str | None = None) -> None:
         c = self.clients[(s.vertical, s.platform)]
-        res = c.page(user_id=s.user_id, category=category, name=name, properties=props, context=self._ctx(s),
-                     timestamp=self._ts(s), anonymous_id=s.anon_id)
+        res = c.page(
+            user_id=s.user_id,
+            category=category,
+            name=name,
+            properties=props,
+            context=self._ctx(s),
+            timestamp=self._ts(s),
+            anonymous_id=s.anon_id,
+        )
         self._record(s, "page", name, None, res)
 
     def screen(self, s, name: str, props: dict, category: str | None = None) -> None:
         c = self.clients[(s.vertical, s.platform)]
-        res = c.screen(user_id=s.user_id, category=category, name=name, properties=props, context=s.ctx,
-                       timestamp=self._ts(s), anonymous_id=s.anon_id)
+        res = c.screen(
+            user_id=s.user_id, category=category, name=name, properties=props, context=s.ctx, timestamp=self._ts(s), anonymous_id=s.anon_id
+        )
         self._record(s, "screen", name, None, res)
 
     def identify(self, s, traits: dict) -> None:
         c = self.clients[(s.vertical, s.platform)]
-        res = c.identify(user_id=s.user_id, traits=dict(traits), context=self._ctx(s), timestamp=self._ts(s),
-                         anonymous_id=s.anon_id)
+        res = c.identify(user_id=s.user_id, traits=dict(traits), context=self._ctx(s), timestamp=self._ts(s), anonymous_id=s.anon_id)
         self._record(s, "identify", "identify", None, res)
 
     def alias(self, s, previous_id: str) -> None:
@@ -189,22 +275,34 @@ class Emitter:
 
     # ---- health
     def sdk_snapshot(self) -> dict:
-        sent = failed = batches = dropped = depth = enq = 0
+        sent = failed = batches = dropped = depth = enq = oversize = undelivered = 0
         for c in self.clients.values():
             sent += c.counter.sent
             failed += c.counter.failed
             batches += c.counter.batches
+            oversize += c.counter.oversize
             dropped += c.dropped
             depth += c.pending()
             enq += c.enqueued
-        return {"sent": sent, "failed": failed, "batches": batches, "dropped": dropped, "queue_depth": depth, "enqueued": enq}
+            undelivered += c.undelivered
+        return {
+            "sent": sent,
+            "failed": failed,
+            "batches": batches,
+            "dropped": dropped,
+            "queue_depth": depth,
+            "enqueued": enq,
+            "oversize": oversize,
+            "undelivered": undelivered,
+        }
 
     def max_queue_fill(self) -> float:
         return max((c.pending() / c.queue.maxsize for c in self.clients.values() if c.queue.maxsize), default=0.0)
 
     def close(self, timeout: float = 30.0) -> bool:
         deadline = time.monotonic() + timeout
-        ok = all([c.drain(max(0.1, deadline - time.monotonic())) for c in self.clients.values()])
+        results = [c.drain(max(0.1, deadline - time.monotonic())) for c in self.clients.values()]  # drain every client
+        ok = all(results)
         if self._sample_fh:
             self._sample_fh.close()
         return ok
@@ -220,8 +318,13 @@ class RecordingEmitter(Emitter):
         self._sample_fh = None
 
     def _push(self, s, msg, kind, name, key):
-        msg.update({"timestamp": datetime.fromtimestamp(s.now, UTC).isoformat(timespec="milliseconds"),
-                    "anonymousId": s.anon_id, "context": self._ctx(s)})
+        msg.update(
+            {
+                "timestamp": datetime.fromtimestamp(s.now, UTC).isoformat(timespec="milliseconds"),
+                "anonymousId": s.anon_id,
+                "context": self._ctx(s),
+            }
+        )
         if s.user_id:
             msg["userId"] = s.user_id
         self.messages.append(msg)
@@ -245,7 +348,7 @@ class RecordingEmitter(Emitter):
 
     def sdk_snapshot(self):
         n = len(self.messages)
-        return {"sent": n, "failed": 0, "batches": 0, "dropped": 0, "queue_depth": 0, "enqueued": n}
+        return {"sent": n, "failed": 0, "batches": 0, "dropped": 0, "queue_depth": 0, "enqueued": n, "oversize": 0, "undelivered": 0}
 
     def max_queue_fill(self):
         return 0.0

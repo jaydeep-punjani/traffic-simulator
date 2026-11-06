@@ -1,15 +1,16 @@
 import pytest
 from pydantic import ValidationError
 
-from trafficsim.config import (Destinations, apply_overrides, expand_env, list_scenarios, load_destinations,
-                               load_scenario, parse_set_args)
+from trafficsim.config import Destinations, apply_overrides, expand_env, list_scenarios, load_destinations, load_scenario, parse_set_args
 from trafficsim.events import PRESETS, Overlay, effects_for
 from trafficsim.planner import TrafficPlanner
 
 
 def test_targets_split_by_weights(make_scenario):
-    sc = make_scenario(traffic={"base_concurrency": 1000, "regions": {"us": 0.5, "eu": 0.5}},
-                       verticals={"streaming": {"weight": 3, "platforms": {"web": 1, "ios": 1}}, "gaming": {"weight": 1}})
+    sc = make_scenario(
+        traffic={"base_concurrency": 1000, "regions": {"us": 0.5, "eu": 0.5}},
+        verticals={"streaming": {"weight": 3, "platforms": {"web": 1, "ios": 1}}, "gaming": {"weight": 1}},
+    )
     pl = TrafficPlanner(sc, start_sim=0)
     tg = pl.targets(0)
     assert sum(tg.values()) == pytest.approx(1000)
@@ -19,8 +20,10 @@ def test_targets_split_by_weights(make_scenario):
 
 
 def test_overlay_multiplies_scope_only(make_scenario):
-    sc = make_scenario(traffic={"base_concurrency": 900, "regions": {"us": 1}},
-                       events=[{"type": "campaign_push", "at": "+0s", "rise": "1m", "hold": "1h", "magnitude": 3}])
+    sc = make_scenario(
+        traffic={"base_concurrency": 900, "regions": {"us": 1}},
+        events=[{"type": "campaign_push", "at": "+0s", "rise": "1m", "hold": "1h", "magnitude": 3}],
+    )
     pl = TrafficPlanner(sc, start_sim=0)
     t = 1800
     tg = pl.targets(t)

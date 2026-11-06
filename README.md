@@ -16,10 +16,21 @@ platform. Web events look like `analytics.js`, apps like `analytics-ios` / `anal
 inside the game client. Web uses `page`, apps and consoles use `screen`, and actions use `track`. Anonymous users who
 sign in or sign up get `identify` (plus `alias` on signup).
 
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [docs/architecture.md](docs/architecture.md) | Processes, modules, arrival model, SDK accounting, run lifecycle. |
+| [docs/scenario-reference.md](docs/scenario-reference.md) | Every scenario field, pattern, event preset and catalog option, with defaults and limits. |
+| [docs/operations.md](docs/operations.md) | Commands, destinations, exports, timestamps, tuning, security, troubleshooting. |
+| [docs/audit-2026-11.md](docs/audit-2026-11.md) | Audit findings, fixes and verification results. |
+
 ## Quick start
 
+Requires Python 3.10 or newer (CI covers 3.10–3.13; also tested on 3.15).
+
 ```bash
-uv venv --python 3.12 .venv     # any Python >= 3.11 works (tested on 3.15)
+uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -e '.[dev]'
 source .venv/bin/activate
 
@@ -35,8 +46,10 @@ trafficsim list                       # bundled scenarios
 trafficsim validate                   # validate every scenario (or: trafficsim validate my.yaml)
 trafficsim run mixed_all --speed 120 --concurrency 20000 --start-at -24h --set verticals.gaming.weight=0.5
 trafficsim run stress_100k --dry-run  # simulate without sending anything
-pytest                                # tests (spin up a real mock collector in-process)
 ```
+
+To install without a checkout, build a wheel (`uv build --wheel`) and `pip install` it. Scenarios, catalogs and the
+example destinations are bundled; set `TRAFFICSIM_HOME` to use your own directory of them.
 
 Each run writes `runs/<run-id>/summary.json` and `timeseries.csv`. If `sample_payloads` > 0, it also writes
 `payloads-w*.jsonl` with a sample of the exact payloads sent.
@@ -93,7 +106,9 @@ API: `GET /api/meta`, `GET /api/scenarios[/{id}]`, `POST /api/validate`, `POST /
 (`{"scenario": id | "yaml": text, "overrides": {"dotted.key": value}, "dry_run": bool}`), `GET /api/runs/current`,
 `POST /api/runs/current/{pause|resume|stop}`, `POST /api/runs/current/speed {"speed": 60}`,
 `POST /api/runs/current/events {"type": "flash_sale", "magnitude": 3, "hold": "30m"}`,
-`GET /api/runs/current/export/{summary.json|timeseries.csv}`, `GET /api/runs`, and WebSocket `/ws`. The WebSocket sends
+`GET /api/runs/current/export/{summary.json|timeseries.csv}`, `GET /api/runs/current/series?last=N`,
+`GET /api/runs/current/summary`, `GET /api/runs`, `GET /api/runs/{id}/files/{name}`, `GET /healthz`, and WebSocket
+`/ws`. The WebSocket sends
 a `hello` with the recent series, then `point` once per second, then `finished`.
 
 ## Destinations and write keys
@@ -116,7 +131,7 @@ Jitsu Segment-compatible endpoint, or the bundled `trafficsim mock-collector` (`
 
 ## Authoring scenarios
 
-Scenarios live in `scenarios/*.yaml`. Any field can be overridden with `--set dotted.key=value` or from the dashboard.
+Scenarios live in `scenarios/*.yaml`. Any field can be overridden with `--set dotted.key=value` or from the dashboard. The full field list, defaults and limits are in [docs/scenario-reference.md](docs/scenario-reference.md).
 
 ```yaml
 name: My launch day
@@ -145,7 +160,7 @@ verticals:
     platforms: {web: 0.3, ios: 0.35, android: 0.35}
     session: {mean_minutes: 35, sigma: 0.9, min_minutes: 0.5, max_minutes: 300}
     event_names: {playback_started: "Playback Began"}   # rename any catalog event
-    params: {titles: 500}                                # override catalog params
+    params: {content_titles: 500}                        # override catalog params
   gaming: {weight: 0.5}
 events:                  # scenario event overlays
   - {type: game_launch, at: +1h, magnitude: 6}
@@ -190,28 +205,30 @@ To rename events without forking a catalog, use `verticals.<v>.event_names`.
 
 ## Timestamps
 
-- An event's `timestamp` is the **simulated** time, anchored at `start_at`. `sentAt` is the real wall-clock time the SDK
-  sent the batch.
-- **Accelerated runs** (`speed` > 1) starting at `now` produce timestamps that move into the future: a 2-hour scenario
-  at 60x finishes 2 hours ahead after 2 wall minutes.
-  - Collectors that skew-correct with `sentAt` (Segment, RudderStack) will shift these events back towards real time.
-    That correction is wrong for a simulation.
-  - Some warehouses also reject future events.
-- **To get realistic historical data**, start in the past so the simulated clock never overtakes the wall clock, for
-  example `start_at: -24h` with `duration: 24h` (as `ecom_black_friday` does with `-4d`). Disable skew correction in the
-  collector if possible.
-- **Real-time runs** (`speed: 1`, `start_at: now`) have `timestamp ≈ sentAt` and are safe for any pipeline.
-- The mock collector reports the median `sentAt - timestamp` skew in `/stats`.
+An event's `timestamp` is the **simulated** time, anchored at `start_at`; `sentAt` is when the SDK sent it. An
+accelerated run that starts at `now` stamps events in the future (a 2-hour scenario at 60x ends ~2 hours ahead), which
+collectors that skew-correct with `sentAt` will distort and some warehouses reject. The CLI and dashboard warn when this
+will happen. For historical data, start in the past, for example `--start-at -24h`. Real-time runs (`speed: 1`) are safe
+for any pipeline. Details: [docs/operations.md#timestamps](docs/operations.md#timestamps).
+
+## Security
+
+The dashboard has no authentication and binds to `127.0.0.1` by default; keep it there or put it behind an
+authenticating proxy. It rejects cross-origin writes and WebSocket connections, serves a strict CSP with vendored
+Chart.js, accepts only scenario *names* (never paths) over the API, and bounds request sizes and numeric inputs. Write
+keys stay in environment variables or the gitignored `config/destinations.yaml` and are masked in API output. See
+[docs/operations.md#security](docs/operations.md#security).
 
 ## Scale and throughput
 
 Measured on a 10-core laptop, with the mock collector on the same machine:
 
-- `stress_100k` with 10 workers held 100k concurrent sessions (peak 101.5k) at 60x for the 2-hour scenario (about 2 wall
-  minutes).
-  - It sent 12.8M events at an average of about 101k events/s (peak about 112k/s).
-  - All 12.8M were received by the collector, with 0 failed and 0 dropped.
-  - Workers ran a steady ~350 simulated seconds (~6 wall seconds) behind the clock, because the box was CPU-bound with
+- `stress_100k` with 10 workers held 100k concurrent sessions (peak 104.1k) at 60x for the 2-hour scenario (130 wall
+  seconds).
+  - It sent 14.29M events at an average of about 110k events/s. Short bursts went higher, and the SDK queues absorbed
+    them without dropping anything.
+  - The collector received all 14,289,970 events, with 0 failed, 0 dropped and 0 undelivered.
+  - Workers ran up to ~400 simulated seconds (~7 wall seconds) behind the clock, because the box was CPU-bound with
     the collector competing for cores. Event timestamps stay exact either way.
   - The dashboard shows this as *Sim lag*.
 - One worker generates roughly 10k+ events/s through the SDK. Event volume scales with
@@ -221,14 +238,27 @@ Measured on a 10-core laptop, with the mock collector on the same machine:
   reported.
 - When a run stops, workers drain SDK queues for up to 60 s before exports are written.
 
+## Development
+
+```bash
+pytest                         # unit, engine and API tests; e2e tests use a real in-process mock collector
+pytest --cov                   # with coverage (92 %)
+ruff check . && ruff format --check .
+mypy trafficsim
+```
+
+CI (`.github/workflows/ci.yml`) runs lint, type checks, tests on Python 3.10–3.13 and macOS, and installs the built
+wheel outside the source tree. Tool configuration lives in `pyproject.toml`.
+
 ## Layout
 
 ```
 trafficsim/   clock, config, patterns, planner, events (overlays), identity, contexts, journeys,
               verticals/{streaming,ecom,gaming}.py, scheduler, worker, emitter (Segment SDK), stats,
-              runner (coordinator), export, api/app.py, dashboard/, mock_collector.py, cli.py
+              runner (coordinator), export, api/app.py, dashboard/ (vendored Chart.js), mock_collector.py, cli.py
 catalogs/     event names, properties, journeys, funnels per vertical
 scenarios/    bundled scenarios
 config/       destinations.example.yaml
+docs/         architecture, scenario reference, operations, audit report
 tests/        pytest suite
 ```

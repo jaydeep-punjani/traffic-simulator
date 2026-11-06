@@ -27,6 +27,7 @@ def run_worker(sc, seconds=3.0, emitter=None, dest=None, send=False, stats_q=Non
 @pytest.fixture(scope="module")
 def recorded():
     from tests.conftest import scenario
+
     sc = scenario(traffic={"base_concurrency": 900, "regions": {"us": 0.6, "eu": 0.4}})
     em = RecordingEmitter()
     stats_q = queue.Queue()
@@ -35,7 +36,7 @@ def recorded():
 
 
 def test_every_platform_emits_with_right_context(recorded):
-    sc, w, msgs, _ = recorded
+    _sc, _w, msgs, _ = recorded
     seen = {}
     for m in msgs:
         lib = m["context"]["library"]["name"]
@@ -67,8 +68,9 @@ def test_event_names_come_from_catalogs(recorded):
 
 
 def test_timestamps_follow_sim_clock(recorded):
-    sc, w, msgs, _ = recorded
+    _sc, w, msgs, _ = recorded
     from datetime import datetime
+
     ts = [datetime.fromisoformat(m["timestamp"]).timestamp() for m in msgs]
     assert min(ts) >= START - 1
     assert max(ts) <= w.clock.now() + 1
@@ -76,7 +78,7 @@ def test_timestamps_follow_sim_clock(recorded):
 
 
 def test_concurrency_tracks_target(recorded):
-    sc, w, _, _ = recorded
+    _sc, w, _, _ = recorded
     active = sum(len(s) for s in w.cohort_sessions.values())
     assert 900 * 0.8 <= active <= 900 * 1.2
 
@@ -90,7 +92,7 @@ def test_identity_flow(recorded):
 
 
 def test_stats_aggregation_and_exports(recorded, tmp_path):
-    sc, w, msgs, stats_q = recorded
+    sc, w, _msgs, stats_q = recorded
     funnels = {v: Catalog.load(v, sc.verticals[v]).funnels for v in VERTICAL_PLATFORMS}
     agg = StatsAggregator(1, funnels)
     snaps = []
@@ -141,8 +143,9 @@ def test_user_pool_deterministic():
 def test_real_segment_sdk_delivers_to_collector(make_scenario, collector, dest):
     col, _ = collector
     col.reset()
-    sc = make_scenario(traffic={"base_concurrency": 300, "regions": {"us": 1}},
-                       sdk={"upload_size": 50, "upload_interval": 0.2, "threads": 2})
+    sc = make_scenario(
+        traffic={"base_concurrency": 300, "regions": {"us": 1}}, sdk={"upload_size": 50, "upload_interval": 0.2, "threads": 2}
+    )
     w = run_worker(sc, 2.5, dest=dest, send=True)
     assert w.emitter.close(15)
     sdk = w.emitter.sdk_snapshot()
@@ -157,8 +160,10 @@ def test_real_segment_sdk_delivers_to_collector(make_scenario, collector, dest):
 
 
 def test_sdk_failures_are_counted_not_silent(make_scenario):
-    sc = make_scenario(traffic={"base_concurrency": 60, "regions": {"us": 1}},
-                       sdk={"upload_size": 20, "upload_interval": 0.1, "max_retries": 0, "timeout": 1})
+    sc = make_scenario(
+        traffic={"base_concurrency": 60, "regions": {"us": 1}},
+        sdk={"upload_size": 20, "upload_interval": 0.1, "max_retries": 0, "timeout": 1},
+    )
     w = run_worker(sc, 1.5, dest=Destinations(host="http://127.0.0.1:9"), send=True)
     w.emitter.close(10)
     sdk = w.emitter.sdk_snapshot()

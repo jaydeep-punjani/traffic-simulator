@@ -41,7 +41,7 @@ journey:
     landing:
       view: {name: Home, path: /}
       dwell: [3, 20]
-      next: {search: 2, category: 3, product: 0.8, exit: 0.6}
+      next: {search: 2, category: 3, product: 0.8, sign_in: 0.3, exit: 0.6}
     search:
       view: {name: Search, path: /search}
       track: [products_searched]
@@ -84,7 +84,7 @@ journey:
     sign_in:
       handler: auth
       view: {name: Sign In, path: /account/login}
-      next: {checkout: 1}
+      next: {category: 2, search: 1, exit: 0.2}
     checkout:
       view: {name: Checkout, path: /checkout}
       track: [checkout_started]

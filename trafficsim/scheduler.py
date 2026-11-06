@@ -6,24 +6,35 @@ import heapq
 
 
 class Scheduler:
-    __slots__ = ("heap", "_wake")
+    """Heap of (wake_time, sid) plus an authoritative sid -> (wake_time, session) map.
+
+    Re-pushing a session supersedes its earlier entry; superseded heap entries are
+    skipped lazily on pop. Heap tuples never contain the session object, so equal
+    (time, sid) pairs can never fall back to comparing sessions.
+    """
+
+    __slots__ = ("_entries", "heap")
 
     def __init__(self):
-        self.heap: list = []
-        self._wake: dict[int, float] = {}  # sid -> authoritative wake time (stale heap entries are skipped)
+        self.heap: list[tuple[float, int]] = []
+        self._entries: dict[int, tuple[float, object]] = {}
 
     def __len__(self) -> int:
-        return len(self._wake)
+        return len(self._entries)
 
     def push(self, t: float, session) -> None:
-        self._wake[session.sid] = t
-        heapq.heappush(self.heap, (t, session.sid, session))
+        self._entries[session.sid] = (t, session)
+        heapq.heappush(self.heap, (t, session.sid))
+
+    def _valid(self, t: float, sid: int):
+        e = self._entries.get(sid)
+        return e is not None and e[0] == t
 
     def peek_time(self) -> float | None:
         heap = self.heap
         while heap:
-            t, sid, _ = heap[0]
-            if self._wake.get(sid) == t:
+            t, sid = heap[0]
+            if self._valid(t, sid):
                 return t
             heapq.heappop(heap)
         return None
@@ -31,12 +42,14 @@ class Scheduler:
     def pop_due(self, now: float):
         """Pop the next session due at or before `now`; returns (t, session) or None."""
         heap = self.heap
-        wake = self._wake
+        entries = self._entries
         while heap and heap[0][0] <= now:
-            t, sid, s = heapq.heappop(heap)
-            if wake.get(sid) == t:
-                return t, s
+            t, sid = heapq.heappop(heap)
+            e = entries.get(sid)
+            if e is not None and e[0] == t:
+                del entries[sid]
+                return t, e[1]
         return None
 
     def discard(self, session) -> None:
-        self._wake.pop(session.sid, None)
+        self._entries.pop(session.sid, None)

@@ -2,6 +2,10 @@
 
 The coordinator owns the authoritative clock and broadcasts its state; workers
 rebuild an identical clock from that state so every process agrees on "now".
+
+Wall time is `time.monotonic()`, which is system-wide on Linux, macOS and Windows,
+so processes on one host share it and NTP or manual clock changes cannot make the
+simulated clock jump. Event timestamps come from `now()` (sim epoch seconds).
 """
 
 from __future__ import annotations
@@ -10,7 +14,7 @@ import time
 
 
 class SimClock:
-    def __init__(self, start_sim: float, speed: float = 1.0, paused: bool = False, wall_fn=time.time):
+    def __init__(self, start_sim: float, speed: float = 1.0, paused: bool = False, wall_fn=time.monotonic):
         if speed <= 0:
             raise ValueError("speed must be > 0")
         self._wall = wall_fn
@@ -65,7 +69,7 @@ class SimClock:
         self.paused = st["paused"]
 
     @classmethod
-    def from_state(cls, st: dict, wall_fn=time.time) -> "SimClock":
+    def from_state(cls, st: dict, wall_fn=time.monotonic) -> SimClock:
         c = cls(st["anchor_sim"], st["speed"], st["paused"], wall_fn=wall_fn)
         c.load_state(st)
         return c

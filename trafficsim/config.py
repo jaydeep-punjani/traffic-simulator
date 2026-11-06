@@ -5,16 +5,81 @@ from __future__ import annotations
 import copy
 import os
 import re
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-ROOT = Path(__file__).resolve().parent.parent
+_PKG = Path(__file__).resolve().parent
+_CHECKOUT = _PKG.parent
+_BUNDLED = _PKG / "_data"  # scenarios/catalogs/config copied into the wheel (see pyproject.toml)
+
+
+def _find_home() -> tuple[Path, bool]:
+    """Directory holding scenarios/, catalogs/ and config/.
+
+    Order: $TRAFFICSIM_HOME, the source checkout this package lives in, then the
+    copy bundled inside an installed wheel. Returns (path, is_bundled).
+    """
+    env = os.environ.get("TRAFFICSIM_HOME")
+    if env:
+        return Path(env).expanduser().resolve(), False
+    if (_CHECKOUT / "scenarios").is_dir() and (_CHECKOUT / "catalogs").is_dir():
+        return _CHECKOUT, False
+    return _BUNDLED, True
+
+
+ROOT, BUNDLED = _find_home()
 SCENARIO_DIR = ROOT / "scenarios"
 CATALOG_DIR = ROOT / "catalogs"
 CONFIG_DIR = ROOT / "config"
+# An installed (bundled) package must not write into site-packages: runs go to ./runs.
+RUNS_DIR = (
+    Path(os.environ["TRAFFICSIM_RUNS_DIR"])
+    if os.environ.get("TRAFFICSIM_RUNS_DIR")
+    else (Path.cwd() / "runs" if BUNDLED else ROOT / "runs")
+)
+
+# Identifiers accepted where a file path must not be (API scenario ids, catalog refs).
+ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+MAX_BASE_CONCURRENCY = 1_000_000
+
+
+class StrictSafeLoader(yaml.SafeLoader):
+    """SafeLoader that rejects aliases (no billion-laughs expansion)."""
+
+    def compose_node(self, parent, index):
+        if self.check_event(yaml.events.AliasEvent):
+            event = self.peek_event()
+            raise yaml.composer.ComposerError(None, None, "YAML aliases are not allowed", event.start_mark)
+        return super().compose_node(parent, index)
+
+
+def safe_load_strict(text: str) -> Any:
+    return yaml.load(text, Loader=StrictSafeLoader)  # noqa: S506 - StrictSafeLoader derives from SafeLoader
+
+
+def yaml_error_message(e: yaml.YAMLError) -> str:
+    """Short YAML error text without the source snippet PyYAML embeds in str(e)."""
+    mark = getattr(e, "problem_mark", None)
+    problem = getattr(e, "problem", None) or e.__class__.__name__
+    if mark is not None:
+        return f"invalid YAML: {problem} (line {mark.line + 1}, column {mark.column + 1})"
+    return f"invalid YAML: {problem}"
+
+
+def _iso_if_datetime(value: Any) -> Any:
+    """YAML turns unquoted ISO timestamps into datetime/date objects; keep them as ISO strings."""
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.isoformat()
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day, tzinfo=timezone.utc).isoformat()
+    return value
+
 
 VERTICAL_PLATFORMS: dict[str, list[str]] = {
     "streaming": ["web", "ios", "android"],
@@ -30,12 +95,32 @@ DEFAULT_SESSION_MINUTES = {"streaming": 35.0, "ecom": 9.0, "gaming": 55.0}
 
 # UTC offsets drive diurnal/weekly patterns; countries/locales feed contexts.
 REGIONS: dict[str, dict[str, Any]] = {
-    "us": {"tz": -5.0, "countries": [("US", "en-US", "America/New_York", 0.55), ("US", "en-US", "America/Chicago", 0.2),
-                                      ("US", "en-US", "America/Los_Angeles", 0.25)]},
-    "eu": {"tz": 1.0, "countries": [("GB", "en-GB", "Europe/London", 0.3), ("DE", "de-DE", "Europe/Berlin", 0.3),
-                                     ("FR", "fr-FR", "Europe/Paris", 0.25), ("ES", "es-ES", "Europe/Madrid", 0.15)]},
-    "apac": {"tz": 8.0, "countries": [("JP", "ja-JP", "Asia/Tokyo", 0.35), ("AU", "en-AU", "Australia/Sydney", 0.25),
-                                       ("SG", "en-SG", "Asia/Singapore", 0.15), ("KR", "ko-KR", "Asia/Seoul", 0.25)]},
+    "us": {
+        "tz": -5.0,
+        "countries": [
+            ("US", "en-US", "America/New_York", 0.55),
+            ("US", "en-US", "America/Chicago", 0.2),
+            ("US", "en-US", "America/Los_Angeles", 0.25),
+        ],
+    },
+    "eu": {
+        "tz": 1.0,
+        "countries": [
+            ("GB", "en-GB", "Europe/London", 0.3),
+            ("DE", "de-DE", "Europe/Berlin", 0.3),
+            ("FR", "fr-FR", "Europe/Paris", 0.25),
+            ("ES", "es-ES", "Europe/Madrid", 0.15),
+        ],
+    },
+    "apac": {
+        "tz": 8.0,
+        "countries": [
+            ("JP", "ja-JP", "Asia/Tokyo", 0.35),
+            ("AU", "en-AU", "Australia/Sydney", 0.25),
+            ("SG", "en-SG", "Asia/Singapore", 0.15),
+            ("KR", "ko-KR", "Asia/Seoul", 0.25),
+        ],
+    },
     "latam": {"tz": -3.0, "countries": [("BR", "pt-BR", "America/Sao_Paulo", 0.6), ("MX", "es-MX", "America/Mexico_City", 0.4)]},
     "india": {"tz": 5.5, "countries": [("IN", "en-IN", "Asia/Kolkata", 1.0)]},
 }
@@ -63,7 +148,7 @@ class VerticalConfig(BaseModel):
 
 class TrafficConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    base_concurrency: float = Field(1000, ge=0)
+    base_concurrency: float = Field(1000, ge=0, le=MAX_BASE_CONCURRENCY)
     regions: dict[str, float] = Field(default_factory=lambda: {"us": 0.45, "eu": 0.30, "apac": 0.25})
     patterns: list[dict[str, Any]] = Field(default_factory=list)
     arrival_tau_seconds: float = Field(120.0, gt=0)
@@ -86,8 +171,8 @@ class SdkConfig(BaseModel):
     max_queue_size: int = Field(50000, ge=100)
     threads: int = Field(1, ge=1, le=16)
     gzip: bool = False
-    timeout: float = 15
-    max_retries: int = 5
+    timeout: float = Field(15, gt=0)
+    max_retries: int = Field(5, ge=0, le=20)
 
 
 class OverlayConfig(BaseModel):
@@ -96,6 +181,11 @@ class OverlayConfig(BaseModel):
     at: str | float = "+0s"
     name: str | None = None
 
+    @field_validator("at", mode="before")
+    @classmethod
+    def _at_iso(cls, v):
+        return _iso_if_datetime(v)
+
 
 class Scenario(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -103,7 +193,7 @@ class Scenario(BaseModel):
     description: str = ""
     start_at: str | float = "now"
     duration: str | float | None = "1h"
-    speed: float = Field(1.0, gt=0)
+    speed: float = Field(1.0, gt=0, le=10_000)
     seed: int = 42
     workers: int | None = Field(None, ge=1, le=256)
     warm_start: bool = True
@@ -113,6 +203,11 @@ class Scenario(BaseModel):
     traffic: TrafficConfig = Field(default_factory=TrafficConfig)
     verticals: dict[str, VerticalConfig]
     events: list[OverlayConfig] = Field(default_factory=list)
+
+    @field_validator("start_at", mode="before")
+    @classmethod
+    def _start_iso(cls, v):
+        return _iso_if_datetime(v)
 
     @model_validator(mode="after")
     def _check(self):
@@ -130,6 +225,11 @@ class Scenario(BaseModel):
                 vc.session.mean_minutes = DEFAULT_SESSION_MINUTES[v]
         if not any(vc.enabled and vc.weight > 0 for vc in self.verticals.values()):
             raise ValueError("at least one vertical must be enabled with weight > 0")
+        from .timeutil import parse_duration, parse_start_at
+
+        parse_start_at(self.start_at)
+        if self.duration not in (None, "", 0) and parse_duration(self.duration) <= 0:
+            raise ValueError("duration must be positive")
         return self
 
     def enabled_verticals(self) -> list[str]:
@@ -140,10 +240,11 @@ class Scenario(BaseModel):
 # Loading / overrides
 # ---------------------------------------------------------------------------
 
+
 def _coerce(value: Any) -> Any:
     if isinstance(value, str):
         try:
-            return yaml.safe_load(value)
+            return _iso_if_datetime(safe_load_strict(value))
         except yaml.YAMLError:
             return value
     return value
@@ -173,19 +274,54 @@ def parse_set_args(items: list[str] | None) -> dict[str, Any]:
     return out
 
 
-def resolve_scenario_path(name_or_path: str) -> Path:
-    p = Path(name_or_path)
-    if p.exists():
-        return p
-    for cand in (SCENARIO_DIR / name_or_path, SCENARIO_DIR / f"{name_or_path}.yaml"):
-        if cand.exists():
+def resolve_scenario_path(name_or_path: str, allow_path: bool = True) -> Path:
+    """Scenario id (file stem in scenarios/) or, when `allow_path`, any YAML file path.
+
+    The API passes allow_path=False so remote callers can only name bundled scenarios.
+    """
+    if ID_RE.match(name_or_path):
+        cand = SCENARIO_DIR / f"{name_or_path}.yaml"
+        if cand.is_file():
+            return cand
+    elif not allow_path:
+        raise ValueError("scenario id must match [A-Za-z0-9_-] (max 64 chars)")
+    if allow_path:
+        p = Path(name_or_path)
+        if p.is_file():
+            return p
+        cand = SCENARIO_DIR / name_or_path
+        if cand.is_file():
             return cand
     raise FileNotFoundError(f"scenario not found: {name_or_path}")
 
 
-def load_scenario_raw(name_or_path: str) -> dict:
-    with open(resolve_scenario_path(name_or_path)) as f:
-        return yaml.safe_load(f) or {}
+def resolve_catalog_path(vertical: str, ref: str | None, allow_path: bool = True) -> Path:
+    """Catalog for a vertical: default catalogs/<vertical>.yaml, a catalog id, or (CLI only) a path."""
+    if not ref:
+        return CATALOG_DIR / f"{vertical}.yaml"
+    if ID_RE.match(ref):
+        cand = CATALOG_DIR / f"{ref}.yaml"
+        if cand.is_file():
+            return cand
+    if not allow_path:
+        raise ValueError(f"catalog {ref!r}: only catalog ids from {CATALOG_DIR.name}/ are allowed here")
+    p = Path(ref)
+    if not p.is_absolute() and not p.exists():
+        p = ROOT / p
+    return p
+
+
+def load_yaml_mapping(path: Path) -> dict:
+    data = safe_load_strict(path.read_text())
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ValueError(f"{path.name}: top level must be a mapping")
+    return data
+
+
+def load_scenario_raw(name_or_path: str, allow_path: bool = True) -> dict:
+    return load_yaml_mapping(resolve_scenario_path(name_or_path, allow_path))
 
 
 def load_scenario(name_or_path: str, overrides: dict | None = None) -> Scenario:
@@ -196,10 +332,11 @@ def list_scenarios() -> list[dict]:
     out = []
     for p in sorted(SCENARIO_DIR.glob("*.yaml")):
         try:
-            raw = yaml.safe_load(p.read_text()) or {}
+            raw = load_yaml_mapping(p)
             out.append({"id": p.stem, "name": raw.get("name", p.stem), "description": raw.get("description", ""), "raw": raw})
-        except yaml.YAMLError as e:
-            out.append({"id": p.stem, "name": p.stem, "description": f"YAML error: {e}", "raw": {}})
+        except (yaml.YAMLError, ValueError) as e:
+            msg = yaml_error_message(e) if isinstance(e, yaml.YAMLError) else str(e)
+            out.append({"id": p.stem, "name": p.stem, "description": msg, "raw": {}})
     return out
 
 
@@ -207,12 +344,18 @@ def list_scenarios() -> list[dict]:
 # Destinations
 # ---------------------------------------------------------------------------
 
-_ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+_ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(:-([^}]*))?\}")
 
 
 def expand_env(value: Any) -> Any:
+    """Expand ${VAR} and ${VAR:-default} (default applies when VAR is unset *or empty*, as in POSIX sh)."""
     if isinstance(value, str):
-        return _ENV_RE.sub(lambda m: os.environ.get(m.group(1), m.group(2) or ""), value)
+
+        def sub(m: re.Match) -> str:
+            cur = os.environ.get(m.group(1), "")
+            return cur if cur or m.group(2) is None else m.group(3)
+
+        return _ENV_RE.sub(sub, value)
     if isinstance(value, dict):
         return {k: expand_env(v) for k, v in value.items()}
     if isinstance(value, list):
@@ -226,14 +369,28 @@ class Destinations(BaseModel):
     default_write_key: str = "dev-write-key"
     sources: dict[str, str] = Field(default_factory=dict)
 
+    @field_validator("host")
+    @classmethod
+    def _host(cls, v: str) -> str:
+        v = v.strip().rstrip("/")
+        if not re.match(r"^https?://[^\s/]+", v):
+            raise ValueError(f"destination host must be an http(s) URL, got {v!r} (unset environment variable?)")
+        return v
+
     def write_key(self, vertical: str, platform: str) -> str:
         return self.sources.get(f"{vertical}_{platform}") or self.sources.get(vertical) or self.default_write_key
 
     def redacted(self) -> dict:
+        """Safe to show in the dashboard/exports: write keys are never revealed, even partially."""
+
         def mask(k: str) -> str:
-            return k[:4] + "…" if len(k) > 6 else "***"
-        return {"host": self.host, "default_write_key": mask(self.default_write_key),
-                "sources": {k: mask(v) for k, v in self.sources.items()}}
+            return "***" if k else ""
+
+        return {
+            "host": self.host,
+            "default_write_key": mask(self.default_write_key),
+            "sources": {k: mask(v) for k, v in self.sources.items()},
+        }
 
 
 def load_destinations(path: str | None = None, host_override: str | None = None) -> Destinations:
@@ -241,15 +398,16 @@ def load_destinations(path: str | None = None, host_override: str | None = None)
     data: dict = {}
     for c in candidates:
         if c.exists():
-            data = expand_env(yaml.safe_load(c.read_text()) or {})
+            data = expand_env(load_yaml_mapping(c))
             break
     else:
         if path:
             raise FileNotFoundError(path)
+    if "host" in data and not data["host"] and not host_override:
+        raise ValueError("destinations: host is empty (is the environment variable it references set?)")
     data = {k: v for k, v in data.items() if v not in (None, "")}
     if "sources" in data:
         data["sources"] = {k: v for k, v in data["sources"].items() if v}
-    dest = Destinations.model_validate(data)
     if host_override:
-        dest.host = host_override
-    return dest
+        data["host"] = host_override
+    return Destinations.model_validate(data)
