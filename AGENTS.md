@@ -145,8 +145,11 @@ validated by the test suite.
 - Platform: extend `VERTICAL_PLATFORMS` and `DEFAULT_PLATFORM_MIX` in `config.py`, `LIBRARIES` and `build_context` in
   `contexts.py`, the dashboard platform sliders, the destinations example (`<vertical>_<platform>` write key) and the
   platform table in `docs/compatibility.md`.
-- Vertical: add `catalogs/<name>.yaml`, a `VerticalRuntime` subclass in `trafficsim/verticals/<name>.py`, register it in
-  `RUNTIMES`, add defaults in `config.py`, a baseline scenario, tests and docs.
+- Vertical: add `catalogs/<name>.yaml`, a `VerticalRuntime` subclass in `trafficsim/verticals/<name>.py` (register
+  handlers and property builders in `setup()`; build instances with `RUNTIMES[v].create(...)`, which calls `setup()` and
+  validates the journey), register it in `RUNTIMES`, add defaults in `config.py`, a baseline scenario, tests and docs.
+- API code must not build file paths from request input: use `bundled_scenario_path` / `bundled_catalog_path`, which
+  match ids against directory listings. CodeQL runs on every pull request and blocks new high-severity alerts.
 
 ## Tests
 

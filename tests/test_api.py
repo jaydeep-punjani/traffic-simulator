@@ -80,3 +80,5 @@ def test_run_lifecycle_over_rest_and_websocket(client, tmp_path):
     assert {"summary.json", "timeseries.csv"} <= files
     assert client.get(f"/api/runs/{rid}/files/summary.json").json()["run_id"] == rid
     assert client.get(f"/api/runs/{rid}/files/..%2F..%2Fetc%2Fpasswd").status_code == 404
+    assert client.get(f"/api/runs/..%2F{rid}/files/summary.json").status_code == 404
+    assert client.get(f"/api/runs/{rid}/files/..").status_code == 404

@@ -32,10 +32,11 @@ from ..config import (
     VERTICAL_PLATFORMS,
     Scenario,
     apply_overrides,
+    bundled_catalog_path,
+    bundled_scenario_path,
     list_scenarios,
     load_destinations,
-    load_scenario_raw,
-    resolve_catalog_path,
+    load_yaml_mapping,
     safe_load_strict,
     yaml_error_message,
 )
@@ -171,12 +172,14 @@ def create_app(destinations_path: str | None = None, host_override: str | None =
         return [{"id": s["id"], "name": s["name"], "description": s["description"]} for s in list_scenarios()]
 
     def load_by_id(sid: str) -> dict:
+        if not ID_RE.match(sid):
+            raise HTTPException(400, "scenario id must match [A-Za-z0-9_-] (max 64 chars)")
         try:
-            return load_scenario_raw(sid, allow_path=False)
-        except ValueError as e:
-            raise HTTPException(400, str(e)) from None
+            return load_yaml_mapping(bundled_scenario_path(sid))
         except FileNotFoundError:
             raise HTTPException(404, "scenario not found") from None
+        except ValueError:
+            raise HTTPException(500, "scenario file is invalid: top level must be a mapping") from None
         except yaml.YAMLError as e:
             raise HTTPException(500, f"scenario file is invalid: {yaml_error_message(e)}") from None
 
@@ -209,9 +212,10 @@ def create_app(destinations_path: str | None = None, host_override: str | None =
         for v, vc in sc.verticals.items():
             if vc.catalog:
                 try:
-                    resolve_catalog_path(v, vc.catalog, allow_path=False)
-                except ValueError as e:
-                    raise HTTPException(422, str(e)) from None
+                    # keep only the id of a bundled catalog, so workers never resolve a caller-supplied path
+                    vc.catalog = bundled_catalog_path(vc.catalog).stem
+                except ValueError:
+                    raise HTTPException(422, f"verticals.{v}.catalog: only catalog ids from catalogs/ are allowed") from None
         return sc
 
     def check_scenario(sc: Scenario) -> TrafficPlanner:
@@ -225,7 +229,7 @@ def create_app(destinations_path: str | None = None, host_override: str | None =
         try:
             pl = TrafficPlanner(sc)
             for v in pl.verticals:
-                RUNTIMES[v](Catalog.load(v, sc.verticals[v]), RecordingEmitter(), random.Random(0), sc.seed)
+                RUNTIMES[v].create(Catalog.load(v, sc.verticals[v]), RecordingEmitter(), random.Random(0), sc.seed)
         except (ValueError, KeyError, TypeError, OSError, yaml.YAMLError) as e:
             raise HTTPException(422, str(e)) from None
         return pl
@@ -320,13 +324,12 @@ def create_app(destinations_path: str | None = None, host_override: str | None =
 
     @app.get("/api/runs/{rid}/files/{name}")
     def export_file(rid: str, name: str):
-        if not ID_RE.match(rid):
+        # match against directory listings so the served path is never built from request input
+        run_dir = next((d for d in runs_root.iterdir() if d.is_dir() and d.name == rid), None) if runs_root.is_dir() else None
+        path = next((p for p in run_dir.iterdir() if p.is_file() and p.name == name), None) if run_dir else None
+        if path is None:
             raise HTTPException(404, "not found")
-        base = runs_root.resolve()
-        path = (runs_root / rid / name).resolve()
-        if base not in path.parents or not path.is_file():
-            raise HTTPException(404, "not found")
-        return FileResponse(path, filename=f"{rid}-{name}")
+        return FileResponse(path, filename=f"{path.parent.name}-{path.name}")
 
     @app.get("/api/runs/current/export/{kind}")
     def export_live(kind: str):

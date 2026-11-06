@@ -197,12 +197,18 @@ class VerticalRuntime:
         self.effects: dict[tuple[str, str], dict] = {}  # (platform, region) -> {"bias":..., "featured": [...]}
         self.handlers: dict[str, Handler] = {"auth": self.h_auth}
         self.props: dict[str, Callable[[Session], dict]] = {}
-        self.setup()
-        catalog.journey.validate(self.handlers, set(self.names))
+
+    @classmethod
+    def create(cls, catalog: Catalog, emitter, rng: random.Random, seed: int = 0) -> VerticalRuntime:
+        """Build a ready runtime: run the subclass `setup()`, then check the journey against its handlers."""
+        runtime = cls(catalog, emitter, rng, seed)
+        runtime.setup()
+        catalog.journey.validate(runtime.handlers, set(runtime.names))
+        return runtime
 
     # ---- hooks for subclasses
     def setup(self) -> None:
-        pass
+        """Register handlers and property builders, and build per-vertical data. Called once by `create()`."""
 
     def on_start(self, s: Session) -> Iterator[float]:
         return iter(())

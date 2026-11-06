@@ -67,7 +67,7 @@ def available_cpus() -> int:
         if quota != "max":
             n = min(n, math.ceil(int(quota) / int(period)))
     except (OSError, ValueError):
-        pass
+        pass  # no cgroup v2 CPU limit (not Linux, or not in a container): keep the CPU count
     return max(1, n)
 
 

@@ -93,7 +93,7 @@ class Worker:
         self.lengths = {}
         for v in self.planner.verticals:
             vc = scenario.verticals[v]
-            self.runtimes[v] = RUNTIMES[v](Catalog.load(v, vc), self.emitter, self.rng, scenario.seed)
+            self.runtimes[v] = RUNTIMES[v].create(Catalog.load(v, vc), self.emitter, self.rng, scenario.seed)
             sl = vc.session
             mean = (sl.mean_minutes or DEFAULT_SESSION_MINUTES[v]) * 60.0
             mu = math.log(mean) - sl.sigma**2 / 2

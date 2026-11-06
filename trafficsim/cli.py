@@ -47,7 +47,7 @@ def cmd_validate(args) -> int:
             sc = load_scenario(name, parse_set_args(args.set))
             planner = TrafficPlanner(sc)
             for v in planner.verticals:
-                RUNTIMES[v](Catalog.load(v, sc.verticals[v]), RecordingEmitter(), random.Random(0))
+                RUNTIMES[v].create(Catalog.load(v, sc.verticals[v]), RecordingEmitter(), random.Random(0))
             peak, at = planner.peak_estimate()
             dur = fmt_duration(planner.end - planner.start) if planner.end else "unbounded"
             print(

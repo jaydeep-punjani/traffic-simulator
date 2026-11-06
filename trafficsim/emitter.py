@@ -312,10 +312,8 @@ class RecordingEmitter(Emitter):
     """Test/dry-run emitter that keeps messages in memory instead of using the SDK."""
 
     def __init__(self, stats=None):
-        self.stats = stats or _NullStats()
+        super().__init__(Destinations(), SdkConfig(), pairs=(), stats=stats or _NullStats())
         self.messages: list[dict] = []
-        self.clients = {}
-        self._sample_fh = None
 
     def _push(self, s, msg, kind, name, key):
         msg.update(

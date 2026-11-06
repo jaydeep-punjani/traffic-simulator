@@ -164,7 +164,8 @@ def test_real_segment_sdk_delivers_to_collector(make_scenario, collector, dest):
         traffic={"base_concurrency": 300, "regions": {"us": 1}}, sdk={"upload_size": 50, "upload_interval": 0.2, "threads": 2}
     )
     w = run_worker(sc, 2.5, dest=dest, send=True)
-    assert w.emitter.close(15)
+    drained = w.emitter.close(15)
+    assert drained
     sdk = w.emitter.sdk_snapshot()
     assert sdk["enqueued"] > 100
     assert sdk["sent"] == sdk["enqueued"] and sdk["failed"] == 0 and sdk["dropped"] == 0

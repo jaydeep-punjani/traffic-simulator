@@ -91,7 +91,7 @@ class Collector:
                         if skew is not None:
                             self.skew.append(skew)
             except (ValueError, AttributeError):
-                pass
+                pass  # sampling is best effort; a malformed sample must not fail the batch it came with
         return n
 
     def sample_list(self) -> list:

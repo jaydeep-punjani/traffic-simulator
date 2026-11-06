@@ -83,6 +83,10 @@ def test_scenario_ids_and_catalog_refs_cannot_be_paths(client):
         resolve_catalog_path("ecom", "/etc/passwd", allow_path=False)
     y = "name: x\nverticals:\n  ecom: {catalog: /etc/passwd}\n"
     assert client.post("/api/validate", json={"yaml": y}).status_code == 422
+    y = "name: x\nverticals:\n  ecom: {catalog: ../catalogs/ecom}\n"
+    assert client.post("/api/validate", json={"yaml": y}).status_code == 422
+    y = "name: x\nverticals:\n  ecom: {catalog: ecom}\n"
+    assert client.post("/api/validate", json={"yaml": y}).status_code == 200
 
 
 def test_yaml_aliases_and_bad_yaml_rejected(client):

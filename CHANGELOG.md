@@ -44,5 +44,12 @@ First public release.
   - CodeQL, dependency review and Dependabot.
   - Tag-driven releases that publish wheels, a multi-arch GHCR image and build provenance.
 
+### Security
+
+- The API only reads bundled scenarios and catalogs, and serves run exports, by matching ids against directory
+  listings, so request input never becomes part of a file path.
+- Scenario YAML is parsed with `yaml.safe_load` after a pass that rejects aliases (no billion-laughs expansion).
+- API errors never include exception text.
+
 [Unreleased]: https://github.com/jaydeep-punjani/traffic-simulator/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/jaydeep-punjani/traffic-simulator/releases/tag/v1.0.0

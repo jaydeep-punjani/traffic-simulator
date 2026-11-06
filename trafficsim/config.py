@@ -47,18 +47,13 @@ ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 MAX_BASE_CONCURRENCY = 1_000_000
 
 
-class StrictSafeLoader(yaml.SafeLoader):
-    """SafeLoader that rejects aliases (no billion-laughs expansion)."""
-
-    def compose_node(self, parent, index):
-        if self.check_event(yaml.events.AliasEvent):
-            event = self.peek_event()
-            raise yaml.composer.ComposerError(None, None, "YAML aliases are not allowed", event.start_mark)
-        return super().compose_node(parent, index)
-
-
 def safe_load_strict(text: str) -> Any:
-    return yaml.load(text, Loader=StrictSafeLoader)  # noqa: S506 - StrictSafeLoader derives from SafeLoader
+    """`yaml.safe_load` that first rejects aliases, so a small document cannot expand into a huge one (billion laughs)."""
+    for event in yaml.parse(text, Loader=yaml.SafeLoader):
+        if isinstance(event, yaml.AliasEvent):
+            mark = event.start_mark if isinstance(event.start_mark, yaml.error.Mark) else None
+            raise yaml.composer.ComposerError(None, None, "YAML aliases are not allowed", mark)
+    return yaml.safe_load(text)
 
 
 def yaml_error_message(e: yaml.YAMLError) -> str:
@@ -274,24 +269,44 @@ def parse_set_args(items: list[str] | None) -> dict[str, Any]:
     return out
 
 
-def resolve_scenario_path(name_or_path: str, allow_path: bool = True) -> Path:
-    """Scenario id (file stem in scenarios/) or, when `allow_path`, any YAML file path.
+def _listed_yaml(directory: Path, ident: str) -> Path | None:
+    """`<ident>.yaml` in `directory`, picked from a directory listing so the returned path never contains caller input."""
+    if not ID_RE.match(ident):
+        return None
+    return next((p for p in sorted(directory.glob("*.yaml")) if p.stem == ident), None)
 
-    The API passes allow_path=False so remote callers can only name bundled scenarios.
-    """
-    if ID_RE.match(name_or_path):
-        cand = SCENARIO_DIR / f"{name_or_path}.yaml"
-        if cand.is_file():
-            return cand
-    elif not allow_path:
+
+def bundled_scenario_path(sid: str) -> Path:
+    """A scenario in scenarios/ by id. The API uses this so remote callers cannot name arbitrary files."""
+    if not ID_RE.match(sid):
         raise ValueError("scenario id must match [A-Za-z0-9_-] (max 64 chars)")
-    if allow_path:
-        p = Path(name_or_path)
-        if p.is_file():
-            return p
-        cand = SCENARIO_DIR / name_or_path
-        if cand.is_file():
-            return cand
+    path = _listed_yaml(SCENARIO_DIR, sid)
+    if path is None:
+        raise FileNotFoundError(f"scenario not found: {sid}")
+    return path
+
+
+def bundled_catalog_path(ref: str) -> Path:
+    """A catalog in catalogs/ by id. The API uses this so remote callers cannot name arbitrary files."""
+    path = _listed_yaml(CATALOG_DIR, ref)
+    if path is None:
+        raise ValueError(f"only catalog ids from {CATALOG_DIR.name}/ are allowed here")
+    return path
+
+
+def resolve_scenario_path(name_or_path: str, allow_path: bool = True) -> Path:
+    """Scenario id (file stem in scenarios/) or, when `allow_path`, any YAML file path."""
+    if not allow_path:
+        return bundled_scenario_path(name_or_path)
+    path = _listed_yaml(SCENARIO_DIR, name_or_path)
+    if path is not None:
+        return path
+    p = Path(name_or_path)
+    if p.is_file():
+        return p
+    cand = SCENARIO_DIR / name_or_path
+    if cand.is_file():
+        return cand
     raise FileNotFoundError(f"scenario not found: {name_or_path}")
 
 
@@ -299,12 +314,11 @@ def resolve_catalog_path(vertical: str, ref: str | None, allow_path: bool = True
     """Catalog for a vertical: default catalogs/<vertical>.yaml, a catalog id, or (CLI only) a path."""
     if not ref:
         return CATALOG_DIR / f"{vertical}.yaml"
-    if ID_RE.match(ref):
-        cand = CATALOG_DIR / f"{ref}.yaml"
-        if cand.is_file():
-            return cand
     if not allow_path:
-        raise ValueError(f"catalog {ref!r}: only catalog ids from {CATALOG_DIR.name}/ are allowed here")
+        return bundled_catalog_path(ref)
+    path = _listed_yaml(CATALOG_DIR, ref)
+    if path is not None:
+        return path
     p = Path(ref)
     if not p.is_absolute() and not p.exists():
         p = ROOT / p
@@ -334,8 +348,8 @@ def list_scenarios() -> list[dict]:
         try:
             raw = load_yaml_mapping(p)
             out.append({"id": p.stem, "name": raw.get("name", p.stem), "description": raw.get("description", ""), "raw": raw})
-        except (yaml.YAMLError, ValueError) as e:
-            msg = yaml_error_message(e) if isinstance(e, yaml.YAMLError) else str(e)
+        except (yaml.YAMLError, ValueError):
+            msg = "Invalid scenario file. Run `trafficsim validate` for details."
             out.append({"id": p.stem, "name": p.stem, "description": msg, "raw": {}})
     return out
 
