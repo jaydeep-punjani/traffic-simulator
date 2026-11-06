@@ -1,0 +1,16 @@
+name: Baseline streaming
+description: An ordinary day of video streaming on web, iOS and Android with a regional diurnal curve.
+start_at: now
+duration: 24h
+speed: 60
+seed: 42
+traffic:
+  base_concurrency: 5000
+  regions: {us: 0.45, eu: 0.30, apac: 0.15, latam: 0.10}
+  patterns:
+    - {type: diurnal, profile: streaming, floor: 0.08}
+    - {type: weekly}
+verticals:
+  streaming:
+    platforms: {web: 0.30, ios: 0.35, android: 0.35}
+    session: {mean_minutes: 35, sigma: 0.9, max_minutes: 300}

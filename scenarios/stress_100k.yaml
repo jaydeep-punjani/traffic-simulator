@@ -1,0 +1,22 @@
+name: Stress 100k concurrent
+description: Ramps to 100,000 concurrent sessions across all verticals and platforms at 60x, then holds. Used for load verification.
+start_at: now
+duration: 2h
+speed: 60
+seed: 1
+workers: 10
+sdk:
+  upload_size: 500
+  upload_interval: 0.5
+  max_queue_size: 200000
+  threads: 2
+traffic:
+  base_concurrency: 100000
+  arrival_tau_seconds: 60
+  regions: {us: 0.45, eu: 0.30, apac: 0.25}
+  patterns:
+    - {type: ramp, from: 0.3, to: 1.0, duration: 20m}
+verticals:
+  streaming: {weight: 0.40}
+  ecom: {weight: 0.35}
+  gaming: {weight: 0.25}

@@ -1,0 +1,25 @@
+# Where trafficsim sends events, and with which Segment write keys.
+#
+# Copy to config/destinations.yaml (gitignored) or keep using this file and
+# provide values through environment variables. ${VAR:-default} is expanded.
+#
+# host: base URL of any Segment-compatible HTTP API (the SDK POSTs to {host}/v1/batch).
+#   RudderStack data plane:  http://rudderstack:8080
+#   Jitsu:                   http://jitsu:8000   (Segment-compatible endpoint)
+#   Bundled mock collector:  http://localhost:8088   (`trafficsim mock-collector`)
+host: ${SEGMENT_HOST:-http://localhost:8088}
+
+# Used for any source that has no key of its own.
+default_write_key: ${SEGMENT_WRITE_KEY:-dev-write-key}
+
+# One write key per source. Lookup order: "<vertical>_<platform>", then "<vertical>",
+# then default_write_key. Empty values fall through to the next option.
+sources:
+  streaming_web: ${STREAMING_WEB_WRITE_KEY:-}
+  streaming_ios: ${STREAMING_IOS_WRITE_KEY:-}
+  streaming_android: ${STREAMING_ANDROID_WRITE_KEY:-}
+  ecom_web: ${ECOM_WEB_WRITE_KEY:-}
+  ecom_ios: ${ECOM_IOS_WRITE_KEY:-}
+  ecom_android: ${ECOM_ANDROID_WRITE_KEY:-}
+  gaming_pc: ${GAMING_PC_WRITE_KEY:-}
+  gaming_ps5: ${GAMING_PS5_WRITE_KEY:-}

@@ -1,0 +1,24 @@
+name: Streaming premiere night
+description: A flagship series premieres 2 hours in; a sports final goes live later. Concurrency spikes and plays shift to the featured titles.
+start_at: now
+duration: 10h
+speed: 60
+seed: 7
+traffic:
+  base_concurrency: 8000
+  regions: {us: 0.6, eu: 0.25, latam: 0.15}
+  patterns:
+    - {type: diurnal, profile: streaming, floor: 0.1, strength: 0.6}
+verticals:
+  streaming:
+    platforms: {web: 0.25, ios: 0.40, android: 0.35}
+    session: {mean_minutes: 45, sigma: 0.8}
+events:
+  - type: premiere
+    at: +2h
+    magnitude: 3.0
+    featured: {title: "The Last Horizon S2", asset_id: "prem-0002", program: "The Last Horizon"}
+  - type: live_event
+    at: +6h
+    hold: 2h
+    regions: [us]

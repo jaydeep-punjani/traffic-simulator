@@ -1,0 +1,67 @@
+# Gaming catalog — custom event set for PC and PS5 titles.
+vertical: gaming
+
+app:
+  name: Nebula Games Launcher
+  version: "3.2.0"
+  build: 32000
+  patch_version: "7.0.0"
+  ps5_title_id: PPSA04321_00
+
+params: {}
+#  games: override the default game list (id, name, genre, weight, modes{mode: [min_minutes, max_minutes]}, maps)
+
+events:
+  game_installed: Game Installed
+  game_launched: Game Launched
+  login_completed: Login Completed
+  tutorial_started: Tutorial Started
+  tutorial_completed: Tutorial Completed
+  lobby_joined: Lobby Joined
+  matchmaking_started: Matchmaking Started
+  match_found: Match Found
+  match_started: Match Started
+  match_completed: Match Completed
+  level_up: Level Up
+  achievement_unlocked: Achievement Unlocked
+  store_viewed: Store Viewed
+  item_purchased: Item Purchased
+  game_exited: Game Exited
+
+funnels:
+  match: [matchmaking_started, match_found, match_started, match_completed]
+  store: [store_viewed, item_purchased]
+
+journey:
+  start: login
+  states:
+    login:
+      handler: login
+      next: {tutorial: 1}
+    tutorial:
+      params: {requires: new_player, fallback: lobby}
+      view: {name: Tutorial}
+      track: [tutorial_started]
+      dwell: [180, 900]
+      next: {tutorial_done: 1}
+    tutorial_done:
+      track: [tutorial_completed]
+      dwell: [2, 5]
+      next: {lobby: 1}
+    lobby:
+      view: {name: Main Menu}
+      track: [lobby_joined]
+      dwell: [10, 60]
+      next: {matchmaking: 5, store: 1, exit: 0.35}
+    store:
+      view: {name: Store}
+      track: [store_viewed]
+      dwell: [20, 120]
+      next: {purchase: 0.18, lobby: 1}
+    purchase:
+      track: [item_purchased]
+      dwell: [3, 10]
+      next: {lobby: 1}
+    matchmaking:
+      handler: match
+      next: {matchmaking: 3, lobby: 1.2, exit: 0.6}

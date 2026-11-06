@@ -1,0 +1,21 @@
+name: E-commerce flash sale
+description: A one-hour flash sale starts 30 minutes in; a push campaign hits the mobile apps two hours later.
+start_at: now
+duration: 4h
+speed: 30
+seed: 11
+traffic:
+  base_concurrency: 6000
+  regions: {us: 0.6, eu: 0.4}
+  patterns:
+    - {type: diurnal, profile: ecom, floor: 0.2, strength: 0.5}
+verticals:
+  ecom:
+    platforms: {web: 0.35, ios: 0.35, android: 0.30}
+events:
+  - type: flash_sale
+    at: +30m
+    magnitude: 4.0
+    featured: {sale_name: "Lightning Deals", discount: 0.5, coupon: "FLASH50"}
+  - type: campaign_push
+    at: +2h30m

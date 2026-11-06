@@ -1,0 +1,119 @@
+# E-commerce catalog — Segment E-commerce Spec.
+# Bias keys used by scenario events (flash_sale etc.) are the journey *state* names below.
+vertical: ecom
+
+app:
+  name: ShopNow
+  version: "5.4.1"
+  build: 5041
+  namespace_ios: com.shopnow.ios
+  namespace_android: com.shopnow.android
+  web_url: https://www.shopnow.example
+
+params:
+  products: 2000
+  currency: USD
+  referrers: ["https://www.google.com/", "https://www.instagram.com/", "", "https://www.bing.com/"]
+
+events:
+  products_searched: Products Searched
+  product_list_viewed: Product List Viewed
+  product_viewed: Product Viewed
+  product_added: Product Added
+  product_removed: Product Removed
+  cart_viewed: Cart Viewed
+  checkout_started: Checkout Started
+  checkout_step_completed: Checkout Step Completed
+  payment_info_entered: Payment Info Entered
+  order_completed: Order Completed
+  coupon_applied: Coupon Applied
+  product_added_to_wishlist: Product Added to Wishlist
+  push_opened: Push Notification Tapped
+  signed_in: Signed In
+  signed_up: Signed Up
+
+funnels:
+  purchase: [product_viewed, product_added, checkout_started, order_completed]
+
+journey:
+  start: landing
+  states:
+    landing:
+      view: {name: Home, path: /}
+      dwell: [3, 20]
+      next: {search: 2, category: 3, product: 0.8, exit: 0.6}
+    search:
+      view: {name: Search, path: /search}
+      track: [products_searched]
+      dwell: [3, 12]
+      next: {results: 1}
+    results:
+      view: {name: Search Results, path: /search/results}
+      track: [product_list_viewed]
+      dwell: [8, 40]
+      next: {product: 4, search: 0.6, category: 0.6, exit: 0.9}
+    category:
+      view: {name: Category, path: /c}
+      track: [product_list_viewed]
+      dwell: [8, 45]
+      next: {product: 4, category: 0.8, search: 0.5, exit: 1.0}
+    product:
+      view: {name: Product Detail, path: "/p/{product_slug}"}
+      track: [product_viewed]
+      dwell: [15, 90]
+      next: {add_to_cart: 1.3, wishlist: 0.3, product: 0.8, category: 1.5, cart: 0.25, exit: 0.9}
+    wishlist:
+      track: [product_added_to_wishlist]
+      dwell: [2, 6]
+      next: {category: 2, product: 1, exit: 0.6}
+    add_to_cart:
+      track: [product_added]
+      dwell: [3, 12]
+      next: {cart: 1.6, category: 1.3, product: 0.6, exit: 0.35}
+    cart:
+      view: {name: Cart, path: /cart}
+      track: [cart_viewed]
+      params: {requires: cart, fallback: category}
+      dwell: [10, 45]
+      next: {checkout: 2.2, remove: 0.35, category: 0.9, exit: 0.8}
+    remove:
+      track: [product_removed]
+      params: {requires: cart, fallback: category}
+      dwell: [2, 6]
+      next: {cart: 1}
+    sign_in:
+      handler: auth
+      view: {name: Sign In, path: /account/login}
+      next: {checkout: 1}
+    checkout:
+      view: {name: Checkout, path: /checkout}
+      track: [checkout_started]
+      params: {requires: cart, fallback: category}
+      dwell: [10, 40]
+      next: {shipping: 3, coupon: 0.5, exit: 1.0}
+    coupon:
+      track: [coupon_applied]
+      params: {requires: checkout, fallback: cart}
+      dwell: [3, 10]
+      next: {shipping: 1}
+    shipping:
+      view: {name: Checkout Shipping, path: /checkout/shipping}
+      track: [checkout_step_completed]
+      params: {requires: checkout, fallback: cart}
+      dwell: [20, 90]
+      next: {payment: 3, exit: 0.6}
+    payment:
+      view: {name: Checkout Payment, path: /checkout/payment}
+      track: [payment_info_entered]
+      params: {requires: checkout, fallback: cart}
+      dwell: [15, 60]
+      next: {order: 3.2, exit: 0.6}
+    identify_gate:
+      handler: auth
+      next: {order: 1}
+    order:
+      view: {name: Order Confirmation, path: /checkout/confirmation}
+      track: [order_completed]
+      params: {requires: identified, fallback: identify_gate}
+      dwell: [10, 40]
+      next: {landing: 0.3, category: 0.4, exit: 2.0}

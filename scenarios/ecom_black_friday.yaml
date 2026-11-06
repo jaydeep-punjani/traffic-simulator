@@ -1,0 +1,26 @@
+name: Black Friday weekend
+description: Four days of Black Friday traffic, replayed into the past (start_at -4d) at 240x so event timestamps are historical.
+start_at: -4d
+duration: 4d
+speed: 240
+seed: 2026
+traffic:
+  base_concurrency: 10000
+  regions: {us: 0.55, eu: 0.30, latam: 0.15}
+  patterns:
+    - {type: diurnal, profile: ecom, floor: 0.05}
+verticals:
+  ecom:
+    platforms: {web: 0.35, ios: 0.35, android: 0.30}
+    session: {mean_minutes: 11, sigma: 0.8}
+events:
+  - type: black_friday
+    at: +6h
+    hold: 3d
+  - type: flash_sale
+    name: doorbusters
+    at: +1d
+    magnitude: 2.0
+  - type: campaign_push
+    name: cyber_monday_push
+    at: +3d12h

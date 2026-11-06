@@ -1,0 +1,19 @@
+name: Esports tournament + patch
+description: A patch-day login spike, then a 4-hour ranked tournament that floods matchmaking on PC and PS5.
+start_at: now
+duration: 8h
+speed: 60
+seed: 5
+traffic:
+  base_concurrency: 5000
+  regions: {us: 0.45, eu: 0.40, apac: 0.15}
+verticals:
+  gaming:
+    platforms: {pc: 0.6, ps5: 0.4}
+events:
+  - type: patch_day
+    at: +20m
+    featured: {build: "1.4.2"}
+  - type: tournament
+    at: +3h
+    platforms: [pc, ps5]

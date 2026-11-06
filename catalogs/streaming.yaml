@@ -1,0 +1,72 @@
+# Video streaming catalog — Segment Video Spec.
+# `events` maps logical keys (used by code and journeys) to the event names that are sent.
+# Rename any event here, or per scenario via `verticals.streaming.event_names`.
+vertical: streaming
+
+app:
+  name: StreamFlix
+  version: "8.12.0"
+  build: 81200
+  namespace_ios: com.streamflix.ios
+  namespace_android: com.streamflix.android
+  web_url: https://www.streamflix.example
+
+params:
+  content_titles: 400
+  heartbeat_seconds: 60        # Video Content Playing cadence (spec suggests 10s; raise volume by lowering)
+  mean_watch_minutes: 32       # abandonment hazard
+  referrers: ["https://www.google.com/", "https://t.co/", "", "", "https://www.facebook.com/"]
+
+events:
+  playback_started: Video Playback Started
+  playback_paused: Video Playback Paused
+  playback_resumed: Video Playback Resumed
+  playback_completed: Video Playback Completed
+  playback_exited: Video Playback Exited
+  buffer_started: Video Playback Buffer Started
+  buffer_completed: Video Playback Buffer Completed
+  seek_started: Video Playback Seek Started
+  seek_completed: Video Playback Seek Completed
+  content_started: Video Content Started
+  content_playing: Video Content Playing
+  content_completed: Video Content Completed
+  ad_started: Video Ad Started
+  ad_completed: Video Ad Completed
+  signed_in: Signed In
+  signed_up: Signed Up
+  searched: Searched
+  content_browsed: Content Browsed
+
+funnels:
+  playback: [playback_started, content_started, content_completed]
+  ads: [ad_started, ad_completed]
+
+journey:
+  start: launch
+  states:
+    launch:
+      view: {name: Home, path: /}
+      dwell: [2, 10]
+      next: {home: 6, sign_in: 1}
+    sign_in:
+      handler: auth
+      view: {name: Sign In, path: /login}
+      next: {home: 1}
+    home:
+      view: {name: Home, path: /}
+      dwell: [5, 25]
+      next: {browse: 3, search: 1.2, play: 3.5, exit: 0.25}
+    browse:
+      view: {name: Browse, path: /browse}
+      track: [content_browsed]
+      dwell: [10, 60]
+      next: {browse: 1, play: 4, search: 0.6, home: 0.5, exit: 0.3}
+    search:
+      view: {name: Search, path: /search}
+      track: [searched]
+      dwell: [5, 30]
+      next: {play: 3, browse: 1, exit: 0.3}
+    play:
+      handler: watch
+      params: {requires: identified, fallback: sign_in}
+      next: {play: 2.5, home: 1.5, browse: 1.5, exit: 1.5}

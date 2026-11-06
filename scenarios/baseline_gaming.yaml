@@ -1,0 +1,16 @@
+name: Baseline gaming
+description: Normal day for a live-service game on PC and PS5, peaking late evening.
+start_at: now
+duration: 24h
+speed: 60
+seed: 42
+traffic:
+  base_concurrency: 3000
+  regions: {us: 0.40, eu: 0.35, apac: 0.25}
+  patterns:
+    - {type: diurnal, profile: gaming, floor: 0.10}
+    - {type: weekly}
+verticals:
+  gaming:
+    platforms: {pc: 0.55, ps5: 0.45}
+    session: {mean_minutes: 55, sigma: 0.8, max_minutes: 360}

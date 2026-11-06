@@ -1,0 +1,20 @@
+name: All three verticals
+description: Streaming, e-commerce and gaming at once, each with its own diurnal curve, plus one overlay per vertical.
+start_at: now
+duration: 12h
+speed: 60
+seed: 42
+traffic:
+  base_concurrency: 15000
+  regions: {us: 0.40, eu: 0.30, apac: 0.15, latam: 0.08, india: 0.07}
+  patterns:
+    - {type: diurnal, floor: 0.1}
+    - {type: sine, period: 1h, amplitude: 0.05}
+verticals:
+  streaming: {weight: 0.45}
+  ecom: {weight: 0.30}
+  gaming: {weight: 0.25}
+events:
+  - {type: premiere, at: +2h}
+  - {type: flash_sale, at: +4h}
+  - {type: tournament, at: +6h, hold: 2h}

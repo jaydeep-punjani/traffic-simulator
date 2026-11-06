@@ -1,0 +1,16 @@
+name: Baseline e-commerce
+description: An ordinary shopping day on web and the iOS/Android apps, peaking in the evening.
+start_at: now
+duration: 24h
+speed: 60
+seed: 42
+traffic:
+  base_concurrency: 4000
+  regions: {us: 0.50, eu: 0.30, india: 0.20}
+  patterns:
+    - {type: diurnal, profile: ecom, floor: 0.05}
+    - {type: weekly, factors: [0.95, 0.95, 1.0, 1.0, 1.1, 1.25, 1.2]}
+verticals:
+  ecom:
+    platforms: {web: 0.40, ios: 0.30, android: 0.30}
+    session: {mean_minutes: 9, sigma: 0.8, max_minutes: 90}

@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>trafficsim</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+<header class="bar">
+  <h1>trafficsim</h1>
+  <span id="dest" class="muted"></span>
+  <span class="spacer"></span>
+  <span id="conn" class="conn" data-state="down">disconnected</span>
+</header>
+
+<main class="layout">
+  <aside class="panel" aria-label="Run setup and controls">
+    <section>
+      <h2>Scenario</h2>
+      <label for="scenario">Scenario file</label>
+      <select id="scenario"></select>
+      <p id="scenario-desc" class="muted small"></p>
+
+      <div class="grid2">
+        <div><label for="p-concurrency">Base concurrency</label><input id="p-concurrency" type="number" min="0" step="100"></div>
+        <div><label for="p-speed">Speed (x)</label><input id="p-speed" type="number" min="0.1" step="1"></div>
+        <div><label for="p-duration">Duration</label><input id="p-duration" type="text" placeholder="e.g. 2h"></div>
+        <div><label for="p-start">Start at</label><input id="p-start" type="text" placeholder="now, -24h, ISO"></div>
+        <div><label for="p-seed">Seed</label><input id="p-seed" type="number"></div>
+        <div><label for="p-workers">Workers</label><input id="p-workers" type="number" min="1" placeholder="auto"></div>
+        <div><label for="p-cap">Events/s cap</label><input id="p-cap" type="number" min="1" placeholder="off"></div>
+        <div><label for="p-sample">Sample payloads</label><input id="p-sample" type="number" min="0" max="1" step="0.001" placeholder="0"></div>
+      </div>
+
+      <fieldset id="mix">
+        <legend>Platform mix</legend>
+        <div id="mix-rows"></div>
+      </fieldset>
+
+      <details>
+        <summary>Edit full scenario YAML</summary>
+        <textarea id="yaml" spellcheck="false" rows="16" aria-label="Scenario YAML"></textarea>
+        <p class="muted small">If you edit the YAML, it is sent as-is; the fields above are applied on top.</p>
+      </details>
+
+      <label class="check"><input id="dry" type="checkbox"> Dry run (simulate only, send nothing)</label>
+      <div class="row">
+        <button id="start" class="primary">Start run</button>
+        <button id="validate">Validate</button>
+      </div>
+      <p id="msg" class="small" role="status"></p>
+    </section>
+
+    <section>
+      <h2>Live controls</h2>
+      <div class="row">
+        <button id="pause" disabled>Pause</button>
+        <button id="stop" disabled>Stop</button>
+      </div>
+      <label for="live-speed">Change speed</label>
+      <div class="row">
+        <input id="live-speed" type="number" min="0.1" step="1" placeholder="60">
+        <button id="apply-speed" disabled>Apply</button>
+      </div>
+      <label for="ev-type">Trigger event now</label>
+      <div class="row">
+        <select id="ev-type"></select>
+        <input id="ev-mag" type="number" step="0.1" min="0.1" placeholder="magnitude" aria-label="Magnitude">
+      </div>
+      <div class="row">
+        <input id="ev-hold" type="text" placeholder="hold, e.g. 30m" aria-label="Hold duration">
+        <button id="trigger" disabled>Trigger</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Exports</h2>
+      <div class="row">
+        <a id="dl-summary" class="btn disabled" aria-disabled="true">summary.json</a>
+        <a id="dl-csv" class="btn disabled" aria-disabled="true">timeseries.csv</a>
+      </div>
+      <p class="muted small">Sampled payloads (if enabled) are written to <code>runs/&lt;run&gt;/payloads-w*.jsonl</code>.</p>
+      <ul id="past-runs" class="runs small"></ul>
+    </section>
+  </aside>
+
+  <section class="content">
+    <div id="empty" class="empty">
+      <p><strong>No run yet.</strong> Pick a scenario on the left, adjust parameters, and press <em>Start run</em>.
+        Start the bundled collector first with <code>trafficsim mock-collector</code> if you have no endpoint.</p>
+    </div>
+
+    <div id="live" hidden>
+      <div class="headline">
+        <div class="lead">
+          <span class="label">Active sessions / target</span>
+          <span class="big"><span id="h-active">0</span><span class="muted"> / <span id="h-target">0</span></span></span>
+          <span class="muted small" id="h-run"></span>
+        </div>
+        <dl class="facts">
+          <div><dt>Sim clock</dt><dd id="h-clock">-</dd></div>
+          <div><dt>Speed</dt><dd id="h-speed">-</dd></div>
+          <div><dt>Events/s</dt><dd id="h-eps">0</dd></div>
+          <div><dt>SDK sent/s</dt><dd id="h-sent">0</dd></div>
+          <div><dt>Queued</dt><dd id="h-queue">0</dd></div>
+          <div><dt>Failed / dropped</dt><dd id="h-fail">0 / 0</dd></div>
+          <div><dt>Sim lag</dt><dd id="h-lag">0s</dd></div>
+          <div><dt>Total events</dt><dd id="h-total">0</dd></div>
+        </dl>
+      </div>
+      <p id="warn" class="warn" hidden></p>
+      <p id="overlays" class="small"></p>
+
+      <div class="charts">
+        <figure class="wide"><figcaption>Are we holding target concurrency? Active sessions by vertical/platform vs target</figcaption><canvas id="c-active"></canvas></figure>
+        <figure><figcaption>What is being sent? Events/s by call type</figcaption><canvas id="c-type"></canvas></figure>
+        <figure><figcaption>Is the SDK keeping up? Sent, failed and dropped per second; queue depth</figcaption><canvas id="c-sdk"></canvas></figure>
+        <figure><figcaption>Where do users drop off? Funnel steps (cumulative)</figcaption><div id="funnels" class="funnels"></div></figure>
+        <figure><figcaption>Busiest events in the last second</figcaption><ol id="top" class="top small"></ol></figure>
+      </div>
+    </div>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

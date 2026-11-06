@@ -1,0 +1,19 @@
+name: Game launch day
+description: A new title launches 1 hour in on PC and PS5; most traffic is first-time players (install, tutorial, first match).
+start_at: now
+duration: 12h
+speed: 60
+seed: 99
+traffic:
+  base_concurrency: 4000
+  regions: {us: 0.4, eu: 0.35, apac: 0.25}
+  patterns:
+    - {type: diurnal, profile: gaming, floor: 0.2, strength: 0.6}
+verticals:
+  gaming:
+    platforms: {pc: 0.5, ps5: 0.5}
+events:
+  - type: game_launch
+    at: +1h
+    rise: 1h
+    magnitude: 6.0
